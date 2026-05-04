@@ -39,3 +39,5 @@ const __dirname = dirname(__filename);
 if (process.argv[1] === __filename) {
   runAgent("Hello friend, can you hear me?", [], {});
 }
+
+// Run the code with: 'npx tsx src/agent/run.ts'
