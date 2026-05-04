@@ -37,5 +37,5 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 if (process.argv[1] === __filename) {
-  runAgent("Hello", [], {}).catch(console.error);
+  runAgent("Hello friend, can you hear me?", [], {});
 }
