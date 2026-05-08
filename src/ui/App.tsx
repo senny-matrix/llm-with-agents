@@ -87,7 +87,7 @@ export function App() {
           },
         });
 
-        setConversationHistory(newHistory);
+        // setConversationHistory(newHistory);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
