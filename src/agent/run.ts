@@ -7,7 +7,7 @@ import type { AgentCallbacks } from '../types.ts';
 import { tools } from './tools/index.ts';
 import { executeTool, type ToolName } from './executeTools.ts';
 
-const MODEL_NAME = 'deepseek-chat';
+const MODEL_NAME = 'deepseek-v4-pro';
 
 const deepseek = createDeepSeek({
   apiKey: process.env.OPENAI_API_KEY,
