@@ -73,7 +73,7 @@ export const runAgent = async (
     }
 
     fullResponse += currentText;
-    if (streamError && !currentText) {
+    if (streamError && !currentText && toolCalls.length === 0) {
       fullResponse = 'Sorry about that, I am working on it!!';
       callbacks?.onToken?.(fullResponse);
       break;

@@ -4,8 +4,8 @@ import {
   tool,
   zodSchema,
   type ToolSet,
+  type ModelMessage,
 } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type {
   EvalData,
@@ -13,9 +13,9 @@ import type {
   MultiTurnEvalData,
   MultiTurnResult,
 } from "./types.ts";
-import { run } from "node:test";
-import { buildMessages } from "./utils.ts";
+import {buildMessages, buildMockedTools} from "./utils.ts";
 import { deepseek } from "@ai-sdk/deepseek";
+import {SYSTEM_PROMPT} from "../src/agent/system/prompt.ts";
 
 const TOOL_DEFINITIONS = {
   readFile: {
@@ -87,7 +87,7 @@ export const singleTurnExecutorWithMocks = async (data: EvalData) => {
 
   const calls = toolCalls.map((tc) => ({
     toolName: tc.toolName,
-    args: 'args' in tc ? tc.input : {},
+    args: 'input' in tc ? tc.input : {},
   }));
 
   const toolNames = toolCalls.map((tc) => tc.toolName);
@@ -98,3 +98,57 @@ export const singleTurnExecutorWithMocks = async (data: EvalData) => {
     selectedAny: toolCalls.length > 0,
   };
 };
+
+/**
+ * Multi-turn executor with mocked tools.
+ * Run a complete agent loop with tools returning fixed values.
+ */
+export const multiTurnWithMocks = async (
+    data: MultiTurnEvalData
+) => {
+  const tools = buildMockedTools(data.mockTools);
+
+  const messages: ModelMessage[] = data.messages ?? [
+    {role: 'system', content: SYSTEM_PROMPT},
+    {role: 'user', content: data.prompt!},
+  ];
+
+  const result = await generateText({
+    model: deepseek.chat(data.config?.model ?? "deepseek-v4-pro"),
+    messages,
+    tools,
+    stopWhen: stepCountIs(data.config?.maxSteps ?? 23),
+  });
+
+  const allToolCalls: string[] = [];
+  const steps = result?.steps.map((step) => {
+    const stepToolCalls = (step.toolCalls ?? []).map((tc) => {
+      allToolCalls.push(tc.toolName);
+      return {
+        toolName: tc.toolName,
+        args: 'input' in tc ? tc.input : {},
+      };
+    });
+    const stepToolResults = (step.toolResults ?? [])
+        .map((tr) => ({
+      toolName: tr.toolName,
+      result: 'result' in tr ? tr.result : tr,
+    }))
+
+    return {
+      toolCalls: stepToolCalls.length > 0 ? stepToolCalls : undefined,
+      toolResults: stepToolResults.length > 0 ? stepToolResults : undefined,
+      text: step.text || undefined,
+    }
+    });
+
+  const toolsUsed = [ new Set(allToolCalls) ];
+
+  return {
+    text: result.text,
+    steps,
+    toolsUsed,
+    toolCallOrder: allToolCalls,
+  }
+}
+
