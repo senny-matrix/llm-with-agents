@@ -4,6 +4,1445 @@ This tutorial walks through the complete codebase of **"Build an AI Agent from S
 
 ---
 
+## Chapter 0: Project Setup — From Zero to Working Agent
+
+This chapter is a hands-on walkthrough. You'll create every file from scratch, install every dependency, and end with a working AI agent running in your terminal. Follow each step in order — every line of code is shown.
+
+---
+
+### 0.1 Prerequisites
+
+You need:
+- **Node.js 18+** and **npm** — [download from nodejs.org](https://nodejs.org)
+- **A code editor** — VS Code recommended
+- **A terminal** — Terminal.app (Mac), Windows Terminal, or your Linux terminal
+- **A DeepSeek API key** — sign up at [platform.deepseek.com](https://platform.deepseek.com), create an API key, and add credits (minimum $2)
+
+Verify your setup:
+```bash
+node --version   # should be v18 or higher
+npm --version    # should be v9 or higher
+```
+
+---
+
+### 0.2 Create the Project Directory
+
+```bash
+mkdir my-ai-agent
+cd my-ai-agent
+npm init -y
+```
+
+This creates a `package.json` with defaults. We'll modify it later.
+
+---
+
+### 0.3 Install All Dependencies
+
+Run these two commands:
+
+```bash
+# Runtime dependencies (the agent needs these to run)
+npm install ai @ai-sdk/deepseek dotenv ink ink-spinner react zod
+
+# Development dependencies (only needed during development)
+npm install -D typescript tsx @types/node @types/react
+```
+
+What each package does:
+
+| Package | Purpose |
+|---------|---------|
+| `ai` | Vercel AI SDK — handles the LLM conversation loop (`generateText`, `streamText`) |
+| `@ai-sdk/deepseek` | Connects the AI SDK to DeepSeek's models |
+| `dotenv` | Loads API keys from a `.env` file |
+| `ink` | React for the terminal — lets you build CLI apps with React components |
+| `ink-spinner` | A loading spinner component for Ink |
+| `react` | React itself (Ink is built on React) |
+| `zod` | Schema validation — defines what arguments each tool expects |
+| `typescript` | The TypeScript compiler (`tsc`) |
+| `tsx` | Runs TypeScript files directly (no compile step needed) |
+| `@types/node` | TypeScript type definitions for Node.js |
+| `@types/react` | TypeScript type definitions for React |
+
+---
+
+### 0.4 Configure TypeScript
+
+Create `tsconfig.json` in the project root:
+
+```bash
+touch tsconfig.json
+```
+
+Open it and write:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2022"],
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "moduleDetection": "force",
+    "module": "Preserve",
+    "resolveJsonModule": true,
+    "allowJs": true
+  }
+}
+```
+
+Key settings explained:
+- `"jsx": "react-jsx"` — enables JSX syntax (Ink uses React components)
+- `"moduleResolution": "bundler"` — lets us import files with `.ts` extensions
+- `"noEmit": true` — `tsx` runs TypeScript directly; we don't need compiled `.js` files
+- `"strict": true` — catches bugs early with strict type checking
+- `"allowImportingTsExtensions": true` — allows `import { foo } from './bar.ts'`
+
+---
+
+### 0.5 Create the Environment File
+
+Create `.env` in the project root:
+
+```bash
+touch .env
+```
+
+Write your API key:
+
+```env
+OPENAI_API_KEY=sk-your-deepseek-api-key-here
+```
+
+> **Why `OPENAI_API_KEY`?** The `@ai-sdk/deepseek` provider reads this environment variable by convention — DeepSeek's API is OpenAI-compatible.
+
+Also create `.gitignore` so you don't accidentally commit your API key:
+
+```gitignore
+node_modules/
+dist/
+.env
+```
+
+---
+
+### 0.6 Create the File Structure
+
+Create all the directories first:
+
+```bash
+mkdir -p src/agent/tools
+mkdir -p src/agent/system
+mkdir -p src/agent/context
+mkdir -p src/ui/components
+```
+
+Your project should now look like this:
+
+```
+my-ai-agent/
+├── .env
+├── .gitignore
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── agent/
+    │   ├── tools/
+    │   ├── system/
+    │   └── context/
+    └── ui/
+        └── components/
+```
+
+Now we'll create each file, one at a time, from the inside out — starting with the simplest building blocks and working up to the entry point.
+
+---
+
+#### File 1: Shared Types (`src/types.ts`)
+
+This file defines the interfaces that connect the agent logic to the UI. Create it first because other files import from it.
+
+```typescript
+export interface AgentCallbacks {
+  onToken?: (token: string) => void;
+  onToolCallStart?: (name: string, args: unknown) => void;
+  onToolCallEnd?: (name: string, result: string) => void;
+  onComplete?: (response: string) => void;
+  onToolApproval?: (name: string, args: unknown) => Promise<boolean>;
+  onTokenUsage?: (usage: TokenUsageInfo) => void;
+}
+
+export interface ToolApprovalRequest {
+  toolName: string;
+  args: unknown;
+  resolve: (approved: boolean) => void;
+}
+
+export interface ToolCallInfo {
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
+export interface ModelLimits {
+  inputLimit: number;
+  outputLimit: number;
+  contextWindow: number;
+}
+
+export interface TokenUsageInfo {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  contextWindow: number;
+  threshold: number;
+  percentage: number;
+}
+```
+
+**What this does**: `AgentCallbacks` is the contract between the agent loop and the UI. The agent calls `onToken` when text arrives, `onToolCallStart` when a tool begins, and so on. The UI implements these callbacks to update the screen.
+
+---
+
+#### File 2: The System Prompt (`src/agent/system/prompt.ts`)
+
+This is the personality and behavior rules sent to the LLM at the start of every conversation.
+
+```typescript
+export const SYSTEM_PROMPT = `You are a helpful AI assistant. You provide clear, accurate, and concise responses to user questions.
+
+Guidelines:
+- Be direct and helpful
+- If you don't know something, say so honestly
+- Provide explanations when they add value
+- Stay focused on the user's actual question`;
+```
+
+---
+
+#### File 3: Message Filtering (`src/agent/system/filterMessages.ts`)
+
+Not all message formats from tools or providers are compatible when fed back to the LLM. This filter keeps only clean messages.
+
+```typescript
+import type { ModelMessage } from "ai";
+
+export const filterCompatibleMessages = (
+  messages: ModelMessage[],
+): ModelMessage[] => {
+  return messages.filter((msg) => {
+    if (msg.role === "user" || msg.role === "system") {
+      return true;
+    }
+
+    if (msg.role === "assistant") {
+      const content = msg.content;
+      if (typeof content === "string" && content.trim()) {
+        return true;
+      }
+      if (Array.isArray(content)) {
+        const hasTextContent = content.some((part: unknown) => {
+          if (typeof part === "string" && part.trim()) return true;
+          if (typeof part === "object" && part !== null && "text" in part) {
+            const textPart = part as { text?: string };
+            return textPart.text && textPart.text.trim();
+          }
+          return false;
+        });
+        return hasTextContent;
+      }
+    }
+
+    if (msg.role === "tool") {
+      return true;
+    }
+
+    return false;
+  });
+};
+```
+
+---
+
+#### File 4: The DateTime Tool (`src/agent/tools/dateTime.ts`)
+
+Every tool has three parts: a description (tells the LLM *when* to use it), an input schema (what arguments it expects), and an execute function (what it actually does).
+
+```typescript
+import { tool } from "ai";
+import { z } from "zod";
+
+export const dateTime = tool({
+    description: "Returns the current time and date. Use this tool before any time related task",
+    inputSchema: z.object({}),
+    execute: async () => {
+        return `The current date and time in ISO format is: ${new Date().toISOString()}`;
+    }
+});
+```
+
+---
+
+#### File 5: The File Tools (`src/agent/tools/file.ts`)
+
+These give the agent the ability to read, write, list, and delete files on your computer.
+
+```typescript
+import { tool } from 'ai';
+import { z } from 'zod';
+import fs from 'node:fs/promises';
+import nodePath from 'node:path';
+
+export const readFile = tool({
+    description: 'Read the full content of the file at a given path, always use this to read a file',
+    inputSchema: z.object({
+        path: z.string().describe('The absolute or relative path to the file to read'),
+    }),
+    execute: async ({ path }) => {
+        try {
+            const content = await fs.readFile(path, 'utf8');
+            return content.toString();
+        } catch (e) {
+            return `There was an error reading the file. Here is the native error from node.js: ${e}`;
+        }
+    }
+});
+
+export const writeFile = tool({
+    description: 'Write content to a file at a specified given path. Create the file if it does not exist and will overwrite if it does.',
+    inputSchema: z.object({
+        path: z.string().describe('The absolute or relative path to the file to write'),
+        content: z.string().describe('The content to write to the file'),
+    }),
+    execute: async ({ path, content }) => {
+        try {
+            const dir = nodePath.dirname(path);
+            await fs.mkdir(dir, { recursive: true });
+            await fs.writeFile(path, content, { encoding: 'utf8' });
+            return `Successfully wrote ${content.length} characters to ${path}`;
+        } catch (e) {
+            return `Was not able to write the content at ${path}. Here is the node.js error: ${e}`;
+        }
+    }
+});
+
+export const listFiles = tool({
+    description: 'List all the files and directories in the specified directory path',
+    inputSchema: z.object({
+        directory: z
+            .string()
+            .describe('The directory path to list the contents of')
+            .default('.'),
+    }),
+    execute: async ({ directory }) => {
+        try {
+            const entries = await fs.readdir(directory, { withFileTypes: true });
+            const items = entries.map(entry => {
+                const type = entry.isDirectory() ? '[dir]' : '[file]';
+                return `${type} ${entry.name}`;
+            });
+            return items.length > 0
+                ? `The following items are in ${directory}:\n${items.sort().join('\n')}`
+                : `The directory ${directory} appears to be empty.`;
+        } catch (e) {
+            return `There was an error listing the contents of ${directory}. Here is the node.js error: ${e}`;
+        }
+    }
+});
+
+export const deleteFile = tool({
+    description: 'Delete the file at the specified given path. Use with caution as this is very destructive and can not be undone.',
+    inputSchema: z.object({
+        path: z.string().describe('The absolute or relative path to the file you want to delete'),
+    }),
+    execute: async ({ path }) => {
+        try {
+            await fs.unlink(path);
+            return `Successfully deleted the file at ${path}`;
+        } catch (e) {
+            return `There was an error deleting the file at ${path}. Here is the node.js error: ${e}`;
+        }
+    }
+});
+```
+
+---
+
+#### File 6: Tool Registry (`src/agent/tools/index.ts`)
+
+This file collects all tools into a single object. The agent loop references this registry — add a new tool here, and the agent can use it.
+
+```typescript
+import { dateTime } from "./dateTime.ts";
+import { deleteFile, listFiles, readFile, writeFile } from "./file.ts";
+
+export const tools = {
+    dateTime,
+    deleteFile,
+    listFiles,
+    readFile,
+    writeFile,
+};
+
+export { readFile, writeFile, deleteFile, listFiles } from "./file.ts";
+```
+
+---
+
+#### File 7: Tool Executor (`src/agent/executeTools.ts`)
+
+When the LLM says "call the `dateTime` tool," this function looks up the tool by name and runs its `execute` function.
+
+```typescript
+import { tools } from "./tools/index.ts";
+
+export type ToolName = keyof typeof tools;
+
+export const executeTool = async (name: ToolName, args: any) => {
+    const tool = tools[name];
+    if (!tool) {
+        return 'Unknown tool, this does not exist';
+    }
+    const execute = tool.execute;
+
+    if (!execute) {
+        return 'This tool does not have an execute function and is not a registered tool';
+    }
+
+    const result = await tool.execute(args, {
+        toolCallId: '',
+        messages: [],
+    });
+
+    return String(result);
+};
+```
+
+---
+
+#### File 8: Token Estimation (`src/agent/context/tokenEstimator.ts`)
+
+LLMs have limited context windows. This module estimates how many tokens the conversation has consumed.
+
+```typescript
+import type { ModelMessage } from "ai";
+
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3.75);
+}
+
+export function extractMessageText(message: ModelMessage): string {
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if ("text" in part && typeof part.text === "string") return part.text;
+        if ("value" in part && typeof part.value === "string") return part.value;
+        if ("output" in part && typeof part.output === "object" && part.output) {
+          const output = part.output as Record<string, unknown>;
+          if ("value" in output && typeof output.value === "string") {
+            return output.value;
+          }
+        }
+        return JSON.stringify(part);
+      })
+      .join(" ");
+  }
+
+  return JSON.stringify(message.content);
+}
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+}
+
+export function estimateMessagesTokens(messages: ModelMessage[]): TokenUsage {
+  let input = 0;
+  let output = 0;
+
+  for (const message of messages) {
+    const text = extractMessageText(message);
+    const tokens = estimateTokens(text);
+
+    if (message.role === "assistant") {
+      output += tokens;
+    } else {
+      input += tokens;
+    }
+  }
+
+  return {
+    input,
+    output,
+    total: input + output,
+  };
+}
+```
+
+---
+
+#### File 9: Model Limits (`src/agent/context/modelLimits.ts`)
+
+Defines context window sizes for different models and checks if usage exceeds thresholds.
+
+```typescript
+import type { ModelLimits } from "../../types.ts";
+
+export const DEFAULT_THRESHOLD = 0.8;
+
+const MODEL_LIMITS: Record<string, ModelLimits> = {
+  "gpt-5": {
+    inputLimit: 272000,
+    outputLimit: 128000,
+    contextWindow: 400000,
+  },
+  "gpt-5-mini": {
+    inputLimit: 272000,
+    outputLimit: 128000,
+    contextWindow: 400000,
+  },
+};
+
+const DEFAULT_LIMITS: ModelLimits = {
+  inputLimit: 128000,
+  outputLimit: 16000,
+  contextWindow: 128000,
+};
+
+export function getModelLimits(model: string): ModelLimits {
+  if (MODEL_LIMITS[model]) {
+    return MODEL_LIMITS[model];
+  }
+
+  if (model.startsWith("gpt-5")) {
+    return MODEL_LIMITS["gpt-5"];
+  }
+
+  return DEFAULT_LIMITS;
+}
+
+export function isOverThreshold(
+  totalTokens: number,
+  contextWindow: number,
+  threshold: number = DEFAULT_THRESHOLD,
+): boolean {
+  return false;
+}
+
+export function calculateUsagePercentage(
+  totalTokens: number,
+  contextWindow: number,
+): number {
+  return 0;
+}
+```
+
+---
+
+#### File 10: Compaction (`src/agent/context/compaction.ts`)
+
+When the conversation gets too long, this summarizes earlier messages. This is a stub — the full implementation is covered in later lessons.
+
+```typescript
+import { generateText, type ModelMessage } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { extractMessageText } from "./tokenEstimator.ts";
+
+const SUMMARIZATION_PROMPT = ``;
+
+function messagesToText(messages: ModelMessage[]): string {
+  return messages
+    .map((msg) => {
+      const role = msg.role.toUpperCase();
+      const content = extractMessageText(msg);
+      return `[${role}]: ${content}`;
+    })
+    .join("\n\n");
+}
+
+export async function compactConversation(
+  messages: ModelMessage[],
+  model: string = "gpt-5-mini",
+): Promise<any> {
+  // Stub — full implementation in later chapters
+}
+```
+
+---
+
+#### File 11: Context Barrel Export (`src/agent/context/index.ts`)
+
+Re-exports everything from the context sub-modules so other files can import from a single path.
+
+```typescript
+export {
+  estimateTokens,
+  estimateMessagesTokens,
+  extractMessageText,
+  type TokenUsage,
+} from "./tokenEstimator.ts";
+
+export {
+  DEFAULT_THRESHOLD,
+  getModelLimits,
+  isOverThreshold,
+  calculateUsagePercentage,
+} from "./modelLimits.ts";
+
+export { compactConversation } from "./compaction.ts";
+```
+
+---
+
+#### File 12: The Agent Loop (`src/agent/run.ts`)
+
+This is the heart of the agent. It takes a user message and conversation history, sends them to DeepSeek with all available tools, streams the response token-by-token, executes any tool calls, feeds results back to the LLM, and repeats until the LLM produces a final text response.
+
+```typescript
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { streamText, type ModelMessage } from 'ai';
+import { createDeepSeek } from '@ai-sdk/deepseek';
+import { SYSTEM_PROMPT } from './system/prompt.ts';
+import type { AgentCallbacks, ToolCallInfo } from '../types.ts';
+import { tools } from './tools/index.ts';
+import { executeTool, type ToolName } from './executeTools.ts';
+import { filterCompatibleMessages } from "./system/filterMessages.ts";
+
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
+
+const MODEL_NAME = 'deepseek-chat';
+
+const deepseek = createDeepSeek({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export const runAgent = async (
+  userMessage: string,
+  conversationHistory: ModelMessage[],
+  callbacks: AgentCallbacks,
+): Promise<ModelMessage[]> => {
+  const workingHistory = filterCompatibleMessages(conversationHistory);
+
+  const messages: ModelMessage[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...workingHistory,
+    { role: 'user', content: userMessage }
+  ];
+
+  let fullResponse = "";
+
+  const toolsWithoutExecute = Object.fromEntries(
+    Object.entries(tools).map(([name, t]) => {
+      const { execute, ...rest } = t;
+      return [name, rest];
+    })
+  );
+
+  let iteration = 0;
+  while (true) {
+    iteration++;
+    const result = streamText({
+      model: deepseek.chat(MODEL_NAME),
+      messages,
+      tools: toolsWithoutExecute,
+    });
+
+    const toolCalls: ToolCallInfo[] = [];
+    let currentText = "";
+    let streamError: Error | null = null;
+
+    try {
+      for await (const chunk of result.fullStream) {
+        if (chunk.type === 'text-delta') {
+          currentText += chunk.text;
+          callbacks?.onToken?.(chunk.text);
+        }
+
+        if (chunk.type === 'tool-call') {
+          const input = 'input' in chunk ? chunk.input : {};
+          toolCalls.push({
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            args: input as any
+          });
+          callbacks?.onToolCallStart?.(chunk.toolName, input);
+        }
+      }
+    } catch (e) {
+      streamError = e as Error;
+      if (!currentText && !streamError.message.includes('No output generated')) {
+        throw streamError;
+      }
+    }
+
+    fullResponse += currentText;
+
+    if (streamError && !currentText && toolCalls.length === 0) {
+      fullResponse = 'Sorry about that, I am working on it!!';
+      callbacks?.onToken?.(fullResponse);
+      break;
+    }
+
+    if (streamError) {
+      const content: any[] = [];
+      if (currentText) content.push({ type: 'text', text: currentText });
+      const toolCallsForMessage: any[] = [];
+      for (const tc of toolCalls) {
+        const toolCallPart = {
+          type: 'tool-call',
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.args,
+        };
+        content.push(toolCallPart);
+        toolCallsForMessage.push({
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          args: tc.args,
+        });
+      }
+      const assistantMessage: any = {
+        role: 'assistant',
+        content,
+      };
+      if (toolCallsForMessage.length > 0) {
+        assistantMessage.toolCalls = toolCallsForMessage;
+      }
+      messages.push(assistantMessage);
+      if (toolCalls.length === 0) break;
+    } else {
+      const finishReason = await result.finishReason;
+      if (finishReason !== 'tool-calls' || toolCalls.length === 0) {
+        const responseMessage = await result.response;
+        messages.push(...responseMessage.messages);
+        break;
+      }
+
+      const responseMessages = await result.response;
+      messages.push(...responseMessages.messages);
+    }
+
+    const toolResults: string[] = [];
+    for (const tc of toolCalls) {
+      const toolResult = await executeTool(tc.toolName as ToolName, tc.args);
+
+      callbacks?.onToolCallEnd?.(tc.toolName, toolResult);
+      toolResults.push(toolResult);
+
+      messages.push({
+        role: 'tool',
+        content: [{
+          type: 'tool-result',
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          output: {
+            type: 'text',
+            value: toolResult,
+          },
+        }],
+      });
+    }
+
+    if (streamError && toolResults.length > 0 && !currentText) {
+      fullResponse = `[Tool execution completed. ${toolResults.length} result(s) available. The agent will respond in the next message.]`;
+      callbacks?.onToken?.(fullResponse);
+    }
+  }
+  callbacks?.onComplete?.(fullResponse);
+  return messages;
+};
+```
+
+**What's happening here**, step by step:
+
+1. Load the `.env` file to get the API key
+2. Create a DeepSeek client using that key
+3. Build the message array: system prompt → conversation history → user's new message
+4. Strip the `execute` functions from tools (the LLM doesn't need them — only the descriptions and schemas)
+5. **Enter the loop**: call `streamText()` which sends everything to DeepSeek
+6. **Stream the response**: as tokens arrive, call `onToken` so the UI updates in real-time
+7. **Handle tool calls**: if the LLM says "call `dateTime`," extract the tool name and arguments
+8. **Execute tools**: run each tool, collect results
+9. **Feed results back**: add tool results to the message array and loop again
+10. **Exit**: when the LLM produces text (not a tool call), we're done
+
+---
+
+#### File 13: The Input Component (`src/ui/components/Input.tsx`)
+
+Captures keystrokes, builds the input string, handles Enter and Backspace.
+
+```typescript
+import React, { useState } from 'react';
+import { Box, Text, useInput } from 'ink';
+
+interface InputProps {
+  onSubmit: (value: string) => void;
+  disabled?: boolean;
+}
+
+export function Input({ onSubmit, disabled = false }: InputProps) {
+  const [value, setValue] = useState('');
+
+  useInput((input, key) => {
+    if (disabled) return;
+
+    if (key.return) {
+      if (value.trim()) {
+        onSubmit(value);
+        setValue('');
+      }
+      return;
+    }
+
+    if (key.backspace || key.delete) {
+      setValue((prev) => prev.slice(0, -1));
+      return;
+    }
+
+    if (input && !key.ctrl && !key.meta) {
+      setValue((prev) => prev + input);
+    }
+  });
+
+  return (
+    <Box>
+      <Text color="blue" bold>
+        {'> '}
+      </Text>
+      <Text>{value}</Text>
+      {!disabled && <Text color="gray">▌</Text>}
+    </Box>
+  );
+}
+```
+
+---
+
+#### File 14: The Message List Component (`src/ui/components/MessageList.tsx`)
+
+Renders past messages — blue for the user, green for the assistant.
+
+```typescript
+import React from 'react';
+import { Box, Text } from 'ink';
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+interface MessageListProps {
+  messages: Message[];
+}
+
+export function MessageList({ messages }: MessageListProps) {
+  return (
+    <Box flexDirection="column" gap={1}>
+      {messages.map((message, index) => (
+        <Box key={index} flexDirection="column">
+          <Text color={message.role === 'user' ? 'blue' : 'green'} bold>
+            {message.role === 'user' ? '› You' : '› Assistant'}
+          </Text>
+          <Box marginLeft={2}>
+            <Text>{message.content}</Text>
+          </Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+```
+
+---
+
+#### File 15: The Spinner Component (`src/ui/components/Spinner.tsx`)
+
+Shows "Thinking..." with an animated spinner while the LLM is processing.
+
+```typescript
+import React from 'react';
+import { Text } from 'ink';
+import InkSpinner from 'ink-spinner';
+
+interface SpinnerProps {
+  label?: string;
+}
+
+export function Spinner({ label = 'Thinking...' }: SpinnerProps) {
+  return (
+    <Text>
+      <Text color="cyan">
+        <InkSpinner type="dots" />
+      </Text>
+      {' '}
+      <Text dimColor>{label}</Text>
+    </Text>
+  );
+}
+```
+
+---
+
+#### File 16: The Tool Call Component (`src/ui/components/ToolCall.tsx`)
+
+Shows a tool being executed — ⚡ icon, spinner while pending, ✓ when done.
+
+```typescript
+import React from 'react';
+import { Box, Text } from 'ink';
+import InkSpinner from 'ink-spinner';
+
+export interface ToolCallProps {
+  name: string;
+  args?: unknown;
+  status: 'pending' | 'complete';
+  result?: string;
+}
+
+export function ToolCall({ name, status, result }: ToolCallProps) {
+  const previewLength = 500;
+  const truncated = result && result.length > previewLength;
+  const displayResult = result ? (truncated ? result.slice(0, previewLength) : result) : '';
+
+  return (
+    <Box flexDirection="column" marginLeft={2}>
+      <Box>
+        <Text color="yellow">⚡ </Text>
+        <Text color="yellow" bold>
+          {name}
+        </Text>
+        {status === 'pending' ? (
+          <Text>
+            {' '}
+            <Text color="cyan">
+              <InkSpinner type="dots" />
+            </Text>
+          </Text>
+        ) : (
+          <Text color="green"> ✓</Text>
+        )}
+      </Box>
+      {status === 'complete' && displayResult && (
+        <Box flexDirection="column" marginLeft={2}>
+          <Text dimColor>→ {displayResult}</Text>
+          {truncated && (
+            <Text dimColor>
+              ... (showing first {previewLength} of {result.length} characters)
+            </Text>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+```
+
+---
+
+#### File 17: The Tool Approval Component (`src/ui/components/ToolApproval.tsx`)
+
+Asks "Approve this tool? Yes/No" for sensitive operations. This is HITL (Human In The Loop).
+
+```typescript
+import React, { useState } from "react";
+import { Box, Text, useInput } from "ink";
+
+interface ToolApprovalProps {
+  toolName: string;
+  args: unknown;
+  onResolve: (approved: boolean) => void;
+}
+
+const MAX_PREVIEW_LINES = 5;
+
+function formatArgs(args: unknown): { preview: string; extraLines: number } {
+  const formatted = JSON.stringify(args, null, 2);
+  const lines = formatted.split("\n");
+
+  if (lines.length <= MAX_PREVIEW_LINES) {
+    return { preview: formatted, extraLines: 0 };
+  }
+
+  const preview = lines.slice(0, MAX_PREVIEW_LINES).join("\n");
+  const extraLines = lines.length - MAX_PREVIEW_LINES;
+  return { preview, extraLines };
+}
+
+function getArgsSummary(args: unknown): string {
+  if (typeof args !== "object" || args === null) {
+    return String(args);
+  }
+
+  const obj = args as Record<string, unknown>;
+  const meaningfulKeys = ["path", "filePath", "command", "query", "code", "content"];
+  for (const key of meaningfulKeys) {
+    if (key in obj && typeof obj[key] === "string") {
+      const value = obj[key] as string;
+      if (value.length > 50) {
+        return value.slice(0, 50) + "...";
+      }
+      return value;
+    }
+  }
+
+  const keys = Object.keys(obj);
+  if (keys.length > 0 && typeof obj[keys[0]] === "string") {
+    const value = obj[keys[0]] as string;
+    if (value.length > 50) {
+      return value.slice(0, 50) + "...";
+    }
+    return value;
+  }
+
+  return "";
+}
+
+export function ToolApproval({ toolName, args, onResolve }: ToolApprovalProps) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const options = ["Yes", "No"];
+
+  useInput(
+    (input, key) => {
+      if (key.upArrow || key.downArrow) {
+        setSelectedIndex((prev) => (prev === 0 ? 1 : 0));
+        return;
+      }
+
+      if (key.return) {
+        onResolve(selectedIndex === 0);
+      }
+    },
+    { isActive: true }
+  );
+
+  const argsSummary = getArgsSummary(args);
+  const { preview, extraLines } = formatArgs(args);
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color="yellow" bold>
+        Tool Approval Required
+      </Text>
+      <Box marginLeft={2} flexDirection="column">
+        <Text>
+          <Text color="cyan" bold>{toolName}</Text>
+          {argsSummary && (
+            <Text dimColor>({argsSummary})</Text>
+          )}
+        </Text>
+        <Box marginLeft={2} flexDirection="column">
+          <Text dimColor>{preview}</Text>
+          {extraLines > 0 && (
+            <Text color="gray">... +{extraLines} more lines</Text>
+          )}
+        </Box>
+      </Box>
+      <Box marginTop={1} marginLeft={2} flexDirection="row" gap={2}>
+        {options.map((option, index) => (
+          <Text
+            key={option}
+            color={selectedIndex === index ? "green" : "gray"}
+            bold={selectedIndex === index}
+          >
+            {selectedIndex === index ? "› " : "  "}
+            {option}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+```
+
+---
+
+#### File 18: The Token Usage Component (`src/ui/components/TokenUsage.tsx`)
+
+Shows context window fullness as a percentage — green when safe, yellow when approaching limit, red when full.
+
+```typescript
+import React from "react";
+import { Box, Text } from "ink";
+import type { TokenUsageInfo } from "../../types.ts";
+
+interface TokenUsageProps {
+  usage: TokenUsageInfo | null;
+}
+
+export function TokenUsage({ usage }: TokenUsageProps) {
+  if (!usage) {
+    return null;
+  }
+
+  const thresholdPercent = Math.round(usage.threshold * 100);
+  const usagePercent = usage.percentage.toFixed(1);
+
+  let color: string = "green";
+  if (usage.percentage >= usage.threshold * 100) {
+    color = "red";
+  } else if (usage.percentage >= usage.threshold * 100 * 0.75) {
+    color = "yellow";
+  }
+
+  return (
+    <Box borderStyle="single" borderColor="gray" paddingX={1}>
+      <Text>
+        Tokens:{" "}
+        <Text color={color} bold>
+          {usagePercent}%
+        </Text>
+        <Text dimColor> (threshold: {thresholdPercent}%)</Text>
+      </Text>
+    </Box>
+  );
+}
+```
+
+---
+
+#### File 19: UI Barrel Export (`src/ui/index.tsx`)
+
+Re-exports the App component and all UI components.
+
+```typescript
+export { App } from './App.tsx';
+export { MessageList, type Message } from './components/MessageList.tsx';
+export { ToolCall, type ToolCallProps } from './components/ToolCall.tsx';
+export { Spinner } from './components/Spinner.tsx';
+export { Input } from './components/Input.tsx';
+```
+
+---
+
+#### File 20: The Main App Component (`src/ui/App.tsx`)
+
+This is the main UI component — it manages all state, connects the agent loop to the display, and renders the component tree.
+
+```typescript
+import React, { useState, useCallback } from "react";
+import { Box, Text, useApp } from "ink";
+import type { ModelMessage } from "ai";
+import { runAgent } from "../agent/run.ts";
+import { MessageList, type Message } from "./components/MessageList.tsx";
+import { ToolCall, type ToolCallProps } from "./components/ToolCall.tsx";
+import { Spinner } from "./components/Spinner.tsx";
+import { Input } from "./components/Input.tsx";
+import { ToolApproval } from "./components/ToolApproval.tsx";
+import { TokenUsage } from "./components/TokenUsage.tsx";
+import type { ToolApprovalRequest, TokenUsageInfo } from "../types.ts";
+
+interface ActiveToolCall extends ToolCallProps {
+  id: string;
+}
+
+export function App() {
+  const { exit } = useApp();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<
+    ModelMessage[]
+  >([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
+  const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
+  const [pendingApproval, setPendingApproval] =
+    useState<ToolApprovalRequest | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(null);
+
+  const handleSubmit = useCallback(
+    async (userInput: string) => {
+      if (
+        userInput.toLowerCase() === "exit" ||
+        userInput.toLowerCase() === "quit"
+      ) {
+        exit();
+        return;
+      }
+
+      setMessages((prev) => [...prev, { role: "user", content: userInput }]);
+      setIsLoading(true);
+      setStreamingText("");
+      setActiveToolCalls([]);
+
+      try {
+        const newHistory = await runAgent(userInput, conversationHistory, {
+          onToken: (token) => {
+            setStreamingText((prev) => prev + token);
+          },
+          onToolCallStart: (name, args) => {
+            setActiveToolCalls((prev) => [
+              ...prev,
+              {
+                id: `${name}-${Date.now()}`,
+                name,
+                args,
+                status: "pending",
+              },
+            ]);
+          },
+          onToolCallEnd: (name, result) => {
+            setActiveToolCalls((prev) =>
+              prev.map((tc) =>
+                tc.name === name && tc.status === "pending"
+                  ? { ...tc, status: "complete", result }
+                  : tc,
+              ),
+            );
+          },
+          onComplete: (response) => {
+            if (response) {
+              setMessages((prev) => [
+                ...prev,
+                { role: "assistant", content: response },
+              ]);
+            }
+            setStreamingText("");
+            setActiveToolCalls([]);
+          },
+          onToolApproval: (name, args) => {
+            return new Promise<boolean>((resolve) => {
+              setPendingApproval({ toolName: name, args, resolve });
+            });
+          },
+          onTokenUsage: (usage) => {
+            setTokenUsage(usage);
+          },
+        });
+
+        setConversationHistory(newHistory);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${errorMessage}` },
+        ]);
+        setStreamingText("");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [conversationHistory, exit],
+  );
+
+  return (
+    <Box flexDirection="column" padding={1}>
+      <Box marginBottom={1}>
+        <Text bold color="magenta">
+          🤖 AI Agent
+        </Text>
+        <Text dimColor> (type "exit" to quit)</Text>
+      </Box>
+
+      <Box flexDirection="column" marginBottom={1}>
+        <MessageList messages={messages} />
+
+        {streamingText && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text color="green" bold>
+              › Assistant
+            </Text>
+            <Box marginLeft={2}>
+              <Text>{streamingText}</Text>
+              <Text color="gray">▌</Text>
+            </Box>
+          </Box>
+        )}
+
+        {activeToolCalls.length > 0 && !pendingApproval && (
+          <Box flexDirection="column" marginTop={1}>
+            {activeToolCalls.map((tc) => (
+              <ToolCall
+                key={tc.id}
+                name={tc.name}
+                args={tc.args}
+                status={tc.status}
+                result={tc.result}
+              />
+            ))}
+          </Box>
+        )}
+
+        {isLoading && !streamingText && activeToolCalls.length === 0 && !pendingApproval && (
+          <Box marginTop={1}>
+            <Spinner />
+          </Box>
+        )}
+
+        {pendingApproval && (
+          <ToolApproval
+            toolName={pendingApproval.toolName}
+            args={pendingApproval.args}
+            onResolve={(approved) => {
+              pendingApproval.resolve(approved);
+              setPendingApproval(null);
+            }}
+          />
+        )}
+      </Box>
+
+      {!pendingApproval && (
+        <Input onSubmit={handleSubmit} disabled={isLoading} />
+      )}
+
+      <TokenUsage usage={tokenUsage} />
+    </Box>
+  );
+}
+```
+
+---
+
+#### File 21: Entry Point (`src/index.ts`)
+
+This is what runs when you type `npm start`. It renders the App component using Ink.
+
+```typescript
+import React from 'react';
+import { render } from 'ink';
+import { App } from './ui/index.tsx';
+
+render(React.createElement(App));
+```
+
+---
+
+### 0.7 Add Scripts to package.json
+
+Open `package.json` and make sure it includes these settings:
+
+```json
+{
+  "name": "my-ai-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx --env-file=.env src/index.ts",
+    "dev": "tsx watch --env-file=.env src/index.ts"
+  }
+}
+```
+
+Two important settings:
+- `"type": "module"` — tells Node.js to use ES module syntax (`import`/`export`)
+- `--env-file=.env` — loads environment variables from `.env` automatically
+
+---
+
+### 0.8 Verify Your File Structure
+
+Before running, verify everything is in place:
+
+```
+my-ai-agent/
+├── .env
+├── .gitignore
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── index.ts
+    ├── types.ts
+    ├── agent/
+    │   ├── run.ts
+    │   ├── executeTools.ts
+    │   ├── system/
+    │   │   ├── prompt.ts
+    │   │   └── filterMessages.ts
+    │   ├── tools/
+    │   │   ├── index.ts
+    │   │   ├── dateTime.ts
+    │   │   └── file.ts
+    │   └── context/
+    │       ├── index.ts
+    │       ├── tokenEstimator.ts
+    │       ├── modelLimits.ts
+    │       └── compaction.ts
+    └── ui/
+        ├── index.tsx
+        ├── App.tsx
+        └── components/
+            ├── Input.tsx
+            ├── MessageList.tsx
+            ├── Spinner.tsx
+            ├── ToolCall.tsx
+            ├── ToolApproval.tsx
+            └── TokenUsage.tsx
+```
+
+That's 21 files total — not counting `package.json`, `tsconfig.json`, `.env`, and `.gitignore`.
+
+---
+
+### 0.9 Run the Agent
+
+```bash
+npm start
+```
+
+You should see:
+
+```
+🤖 AI Agent (type "exit" to quit)
+
+>
+```
+
+Type a question and press Enter. Try these:
+
+- `What time is it?` — the agent should call the `dateTime` tool
+- `Read the package.json file` — calls the `readFile` tool
+- `Write a file called hello.txt with "Hello, world!" in it` — calls `writeFile`
+
+To quit, type `exit` and press Enter.
+
+---
+
+### 0.10 Development Mode
+
+For development, use the watch command so the agent restarts automatically when you change a file:
+
+```bash
+npm run dev
+```
+
+---
+
+### 0.11 What You've Built
+
+You now have a working AI agent that can:
+- Answer questions using an LLM (DeepSeek)
+- Tell you the current time (tool: `dateTime`)
+- Read files on your computer (tool: `readFile`)
+- Write files (tool: `writeFile`)
+- List directory contents (tool: `listFiles`)
+- Delete files (tool: `deleteFile`)
+- Stream responses token-by-token in the terminal
+- Track token usage and warn when the context window is full
+- Pause for human approval before running risky tools
+
+The remaining chapters of this tutorial explain **how** each piece works, covering the architecture, the agent loop, tool design, context management, evals, and the Ink UI framework.
+
+---
+
 ## Chapter 1: What Is an AI Agent?
 
 In one sentence: **an AI agent is a program that can use tools.**

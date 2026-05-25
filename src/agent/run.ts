@@ -1,4 +1,6 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { streamText, type ModelMessage } from 'ai';
 import { createDeepSeek } from '@ai-sdk/deepseek';
 import { getTracer, Laminar } from '@lmnr-ai/lmnr';
@@ -8,15 +10,18 @@ import { tools } from './tools/index.ts';
 import { executeTool, type ToolName } from './executeTools.ts';
 import { filterCompatibleMessages} from "./system/filterMessages.ts";
 
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
+
 const MODEL_NAME = 'deepseek-v4-pro';
 
 const deepseek = createDeepSeek({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-Laminar.initialize({
-  projectApiKey: process.env.LMNR_PROJECT_API_KEY || '',
-});
+const lmnrApiKey = process.env.LMNR_PROJECT_API_KEY;
+if (lmnrApiKey) {
+  Laminar.initialize({ projectApiKey: lmnrApiKey });
+}
 
 export const runAgent = async (
   userMessage: string,
@@ -33,11 +38,20 @@ export const runAgent = async (
 
   let fullResponse = "";
 
+  const toolsWithoutExecute = Object.fromEntries(
+    Object.entries(tools).map(([name, t]) => {
+      const { execute, ...rest } = t;
+      return [name, rest];
+    })
+  );
+
+  let iteration = 0;
   while(true) {
+    iteration++;
     const result = streamText({
       model: deepseek.chat(MODEL_NAME),
       messages,
-      tools,
+      tools: toolsWithoutExecute,
       experimental_telemetry: {
         isEnabled: true,
         tracer: getTracer(),
@@ -73,26 +87,58 @@ export const runAgent = async (
     }
 
     fullResponse += currentText;
+
     if (streamError && !currentText && toolCalls.length === 0) {
       fullResponse = 'Sorry about that, I am working on it!!';
       callbacks?.onToken?.(fullResponse);
       break;
     }
 
-    const finishReason = await result.finishReason;
-    if (finishReason !== 'tool-calls' || toolCalls.length === 0) {
-      const responseMessage = await result.response;
-      messages.push(...responseMessage.messages);
-      break;
+    if (streamError) {
+      const content: any[] = [];
+      if (currentText) content.push({ type: 'text', text: currentText });
+      const toolCallsForMessage: any[] = [];
+      for (const tc of toolCalls) {
+        const toolCallPart = {
+          type: 'tool-call',
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.args,
+        };
+        content.push(toolCallPart);
+        toolCallsForMessage.push({
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          args: tc.args,
+        });
+      }
+      const assistantMessage: any = {
+        role: 'assistant',
+        content,
+      };
+      if (toolCallsForMessage.length > 0) {
+        assistantMessage.toolCalls = toolCallsForMessage;
+      }
+      messages.push(assistantMessage);
+      if (toolCalls.length === 0) break;
+    } else {
+      const finishReason = await result.finishReason;
+      if (finishReason !== 'tool-calls' || toolCalls.length === 0) {
+        const responseMessage = await result.response;
+        messages.push(...responseMessage.messages);
+        break;
+      }
+
+      const responseMessages = await result.response;
+      messages.push(...responseMessages.messages);
     }
 
-    const responseMessages = await result.response;
-    messages.push(...responseMessages.messages);
-
+    const toolResults: string[] = [];
     for (const tc of toolCalls) {
-      const result = await executeTool(tc.toolName as ToolName, tc.args);
+      const toolResult = await executeTool(tc.toolName as ToolName, tc.args);
 
-      callbacks?.onToolCallEnd?.(tc.toolName, result);
+      callbacks?.onToolCallEnd?.(tc.toolName, toolResult);
+      toolResults.push(toolResult);
 
       messages.push({
         role: 'tool',
@@ -102,10 +148,15 @@ export const runAgent = async (
           toolName: tc.toolName,
           output: {
             type: 'text',
-            value: result,
+            value: toolResult,
           },
         }],
       });
+    }
+
+    if (streamError && toolResults.length > 0 && !currentText) {
+      fullResponse = `[Tool execution completed. ${toolResults.length} result(s) available. The agent will respond in the next message.]`;
+      callbacks?.onToken?.(fullResponse);
     }
   }
   callbacks?.onComplete?.(fullResponse);

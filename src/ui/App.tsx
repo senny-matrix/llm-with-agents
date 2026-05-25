@@ -95,6 +95,7 @@ export function App() {
           ...prev,
           { role: "assistant", content: `Error: ${errorMessage}` },
         ]);
+        setStreamingText("");
       } finally {
         setIsLoading(false);
       }

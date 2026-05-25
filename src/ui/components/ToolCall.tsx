@@ -10,6 +10,10 @@ export interface ToolCallProps {
 }
 
 export function ToolCall({ name, status, result }: ToolCallProps) {
+  const previewLength = 500;
+  const truncated = result && result.length > previewLength;
+  const displayResult = result ? (truncated ? result.slice(0, previewLength) : result) : '';
+
   return (
     <Box flexDirection="column" marginLeft={2}>
       <Box>
@@ -28,9 +32,12 @@ export function ToolCall({ name, status, result }: ToolCallProps) {
           <Text color="green"> ✓</Text>
         )}
       </Box>
-      {status === 'complete' && result && (
-        <Box marginLeft={2}>
-          <Text dimColor>→ {result.slice(0, 100)}{result.length > 100 ? '...' : ''}</Text>
+      {status === 'complete' && displayResult && (
+        <Box flexDirection="column" marginLeft={2}>
+          <Text dimColor>→ {displayResult}</Text>
+          {truncated && (
+            <Text dimColor>  ... (showing first {previewLength} of {result.length} characters)</Text>
+          )}
         </Box>
       )}
     </Box>
