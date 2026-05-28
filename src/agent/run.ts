@@ -51,7 +51,8 @@ export const runAgent = async (
     const result = streamText({
       model: deepseek.chat(MODEL_NAME),
       messages,
-      tools: toolsWithoutExecute,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools: toolsWithoutExecute as any,
       experimental_telemetry: {
         isEnabled: true,
         tracer: getTracer(),
