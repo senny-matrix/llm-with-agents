@@ -1,4 +1,4 @@
-import { type ModelMessage } from 'ai';
+import type { ModelMessage } from 'ai';
 
 const assistantMessage: ModelMessage = {
   role: 'assistant',
@@ -7,7 +7,7 @@ const assistantMessage: ModelMessage = {
       type: 'tool-call',
       toolCallId: 'call_123',
       toolName: 'listFiles',
-      args: {}
+      input: {}
     }
   ]
 };
@@ -19,7 +19,7 @@ const toolMessage: ModelMessage = {
       type: 'tool-result',
       toolCallId: 'call_123',
       toolName: 'listFiles',
-      result: 'success'
+      output: { type: 'text', value: 'success' }
     }
   ]
 };

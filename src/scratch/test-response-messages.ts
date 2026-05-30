@@ -1,8 +1,10 @@
-import { config } from 'dotenv';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { streamText } from 'ai';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { createDeepSeek } from '@ai-sdk/deepseek';
+import { streamText } from 'ai';
+import { config } from 'dotenv';
+
 import { listFiles } from '../agent/tools/file.ts';
 
 config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
