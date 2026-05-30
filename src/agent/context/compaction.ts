@@ -1,9 +1,23 @@
 import { generateText, type ModelMessage } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { extractMessageText } from "./tokenEstimator.ts";
+import { createDeepSeek } from '@ai-sdk/deepseek';
 
-const SUMMARIZATION_PROMPT = `
+
+const SUMMARIZATION_PROMPT = `You are a conversation summarizer. Your task is to create a concise summary of the conversation so far that preserves:
+
+1. Key decisions and conclusions reached
+2. Important context and facts mentioned
+3. Any pending tasks or questions
+4. The overall goal of the conversation
+
+Be concise but complete. The summary should allow the conversation to continue naturally.
+
+Conversation to summarize:
 `;
+
+const deepseek = createDeepSeek({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 /**
  * Format messages array as readable text for summarization
@@ -30,8 +44,24 @@ function messagesToText(messages: ModelMessage[]): string {
  */
 export async function compactConversation(
   messages: ModelMessage[],
-  model: string = "gpt-5-mini",
-): Promise<any> {
-  // Filter out system messages - they're handled separately
-  //
+  model: string = "deepseek-v4-flash",
+): Promise< any> {
+  const conversationMessages = messages.filter((m) => m.role !== "system");
+
+  if (conversationMessages.length === 0) return [];
+
+  const conversationText = messagesToText(conversationMessages);
+
+  const {text: summary} = await generateText({
+    model: deepseek.chat(model),
+    prompt: SUMMARIZATION_PROMPT + conversationText,
+  });
+
+  const compactedMessages: ModelMessage[] = [
+    {role: 'user', content: `Summary of previous conversation: ${summary}. Please continue where we left off`},
+    {role: 'assistant', content: `I understand, I have reviewed the conversation and I am ready to continue. How can I help?`}
+  ];
+
+  return compactedMessages;
+
 }
