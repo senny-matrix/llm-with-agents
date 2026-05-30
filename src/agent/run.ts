@@ -9,6 +9,15 @@ import type {AgentCallbacks, ToolCallInfo} from '../types.ts';
 import { tools } from './tools/index.ts';
 import { executeTool, type ToolName } from './executeTools.ts';
 import { filterCompatibleMessages} from "./system/filterMessages.ts";
+import {
+  estimateTokens,
+  getModelLimits,
+  isOverThreshold,
+  calculateUsagePercentage,
+  compactConversation,
+  DEFAULT_THRESHOLD,
+  estimateMessagesTokens
+} from './context/index.ts';
 
 config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
@@ -28,13 +37,19 @@ export const runAgent = async (
   conversationHistory: ModelMessage[],
   callbacks: AgentCallbacks,
 ): Promise<ModelMessage[]> => {
+  const modelLimits = getModelLimits(MODEL_NAME);
+
   const workingHistory = filterCompatibleMessages(conversationHistory);
 
-  const messages: ModelMessage[] = [
-    {role: 'system', content: SYSTEM_PROMPT},
-    ...workingHistory,
-    {role: 'user', content: userMessage}
-  ];
+  let messages: ModelMessage[] = [
+  ...workingHistory,
+  { role: 'user', content: userMessage }
+];
+
+  let preCheckTokens = estimateMessagesTokens(messages);
+  if(isOverThreshold(preCheckTokens.total, modelLimits.contextWindow)) {
+    messages = await compactConversation(workingHistory, MODEL_NAME);
+  }
 
   let fullResponse = "";
 
@@ -50,6 +65,7 @@ export const runAgent = async (
     iteration++;
     const result = streamText({
       model: deepseek.chat(MODEL_NAME),
+      system: SYSTEM_PROMPT,
       messages,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: toolsWithoutExecute as any,
@@ -58,6 +74,23 @@ export const runAgent = async (
         tracer: getTracer(),
       },
     });
+
+    const reportTokenUsage = () => {
+      if (callbacks.onTokenUsage) {
+        const usage = estimateMessagesTokens(messages);
+        callbacks.onTokenUsage({
+          inputTokens: usage.input,
+          outputTokens: usage.output,
+          totalTokens: usage.total,
+          threshold: DEFAULT_THRESHOLD,
+          contextWindow: modelLimits.contextWindow,
+          percentage: calculateUsagePercentage(
+            usage.total,
+            modelLimits.contextWindow
+          )
+        });
+      }
+    }
 
     const toolCalls: ToolCallInfo[] = [];
     let currentText = "";
@@ -127,6 +160,7 @@ export const runAgent = async (
       if (finishReason !== 'tool-calls' || toolCalls.length === 0) {
         const responseMessage = await result.response;
         messages.push(...responseMessage.messages);
+        reportTokenUsage();
         break;
       }
 
@@ -153,6 +187,7 @@ export const runAgent = async (
           },
         }],
       });
+      reportTokenUsage();
     }
 
     if (streamError && toolResults.length > 0 && !currentText) {
