@@ -60,6 +60,7 @@ export const runAgent = async (
   userMessage: string,
   conversationHistory: ModelMessage[],
   callbacks: AgentCallbacks,
+  signal?: AbortSignal,
 ): Promise<ModelMessage[]> => {
   const effectiveModel = _runtimeModelOverride || resolveModelName();
   const modelLimits = getModelLimits(effectiveModel);
@@ -89,6 +90,12 @@ export const runAgent = async (
   );
 
   while (true) {
+    if (signal?.aborted) {
+      fullResponse = '⏹️ Interrupted.';
+      callbacks?.onToken?.(fullResponse);
+      break;
+    }
+
     const result = streamText({
       model: getModel(resolveModelName(_runtimeModelOverride ?? undefined)),
       system: dynamicSystemPrompt,
@@ -96,6 +103,7 @@ export const runAgent = async (
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: toolsWithoutExecute as any,
       maxOutputTokens: modelLimits.outputLimit,
+      abortSignal: signal,
       experimental_telemetry: {
         isEnabled: true,
         tracer: getTracer(),

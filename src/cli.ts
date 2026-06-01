@@ -34,6 +34,12 @@ if (args.includes("--help") || args.includes("-h")) {
     /sessions       List all saved conversation sessions
     /load <id>      Load a previously saved session by ID
 
+  Keyboard shortcuts:
+    Ctrl+C          Interrupt running agent (press again if idle to exit)
+    Ctrl+D          Exit the agent
+    Ctrl+L          Clear the conversation
+    ↑ / ↓           Navigate input history
+
   Defaults:
     Model:    ${model}
     Provider: ${provider}

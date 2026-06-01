@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Box, Text, useApp } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
 import type { ModelMessage } from "ai";
 import { runAgent, setRuntimeModel, setRuntimeSummarizeModel, getCurrentModelName, getCurrentProvider } from "../agent/run.ts";
 import { setProviderConfig, type ProviderType } from "../agent/providers/index.ts";
@@ -55,6 +55,8 @@ export function App() {
   const [currentModel, setCurrentModel] = useState(getCurrentModelName());
   const [currentProvider, setCurrentProvider] = useState<ProviderType>(getCurrentProvider());
   const sessionIdRef = useRef<string>(generateSessionId());
+  const abortRef = useRef<AbortController | null>(null);
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
 
   // Load last session on startup
   useEffect(() => {
@@ -97,6 +99,37 @@ export function App() {
       });
     }
   }, [conversationHistory]);
+
+  // Global keyboard shortcuts (independent of Input focus)
+  useInput((_input, key) => {
+    // Ctrl+D → exit
+    if (key.ctrl && _input === "d") {
+      exit();
+      return;
+    }
+
+    // Ctrl+L → clear screen
+    if (key.ctrl && _input === "l") {
+      setConversationHistory([]);
+      setMessages([]);
+      setTokenUsage(null);
+      setStreamingText("");
+      setActiveToolCalls([]);
+      sessionIdRef.current = generateSessionId();
+      return;
+    }
+
+    // Ctrl+C → interrupt running agent (first press), exit if idle
+    if (key.ctrl && _input === "c") {
+      if (abortRef.current && !abortRef.current.signal.aborted) {
+        abortRef.current.abort();
+        setMessages((prev) => [...prev, { role: "assistant", content: "⏹️ Interrupted." }]);
+        return;
+      }
+      // Nothing running — exit
+      exit();
+    }
+  });
 
   const handleSubmit = useCallback(
     async (userInput: string) => {
@@ -263,6 +296,15 @@ export function App() {
       setStreamingText("");
       setActiveToolCalls([]);
 
+      // Track input history (deduplicate consecutive identical entries)
+      setInputHistory((prev) =>
+        prev[0] === userInput ? prev : [userInput, ...prev].slice(0, 100),
+      );
+
+      // Create abort controller for Ctrl+C interrupt
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
         const newHistory = await runAgent(userInput, conversationHistory, {
           onToken: (token) => {
@@ -307,19 +349,23 @@ export function App() {
           onTokenUsage: (usage) => {
             setTokenUsage(usage);
           },
-        });
+        }, controller.signal);
 
         setConversationHistory(newHistory);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `Error: ${errorMessage}` },
-        ]);
+        // Don't show error if it was an intentional abort
+        if (errorMessage !== "This operation was aborted") {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: `Error: ${errorMessage}` },
+          ]);
+        }
         setStreamingText("");
       } finally {
         setIsLoading(false);
+        abortRef.current = null;
       }
     },
     [conversationHistory, exit, mode],
@@ -422,7 +468,7 @@ export function App() {
       </Box>
 
       {!pendingApproval && (
-        <Input onSubmit={handleSubmit} disabled={isLoading} />
+        <Input onSubmit={handleSubmit} disabled={isLoading} history={inputHistory} />
       )}
 
       <TokenUsage usage={tokenUsage} />
