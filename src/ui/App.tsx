@@ -19,7 +19,7 @@ import {
   listSessions,
 } from "../agent/session/store.ts";
 import { exportMarkdown, exportJSON } from "../agent/session/export.ts";
-import type { ToolApprovalRequest, TokenUsageInfo } from "../types.ts";
+import type { ToolApprovalRequest, TokenUsageInfo, CostUpdateInfo } from "../types.ts";
 
 interface ActiveToolCall extends ToolCallProps {
   id: string;
@@ -86,6 +86,7 @@ export function App() {
   const [pendingApproval, setPendingApproval] =
     useState<ToolApprovalRequest | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(null);
+  const [sessionCost, setSessionCost] = useState(0);
   const [markdownMode, setMarkdownMode] = useState(cfg.markdown);
   const [currentModel, setCurrentModel] = useState(getCurrentModelName());
   const [currentProvider, setCurrentProvider] = useState<ProviderType>(getCurrentProvider());
@@ -148,6 +149,7 @@ export function App() {
       setConversationHistory([]);
       setMessages([]);
       setTokenUsage(null);
+      setSessionCost(0);
       setStreamingText("");
       setActiveToolCalls([]);
       sessionIdRef.current = generateSessionId();
@@ -190,6 +192,7 @@ export function App() {
         setConversationHistory([]);
         setMessages([]);
         setTokenUsage(null);
+        setSessionCost(0);
         sessionIdRef.current = generateSessionId();
         return;
       }
@@ -304,6 +307,7 @@ export function App() {
         sessionIdRef.current = session.meta.id;
         setConversationHistory(session.messages);
         setTokenUsage(null);
+        setSessionCost(0);
 
         // Reconstruct display messages from loaded session
         const displayMsgs: Message[] = [];
@@ -416,6 +420,9 @@ export function App() {
         },
         onTokenUsage: (usage) => {
           setTokenUsage(usage);
+        },
+        onCostUpdate: (cost: CostUpdateInfo) => {
+          setSessionCost((prev) => prev + cost.addedCost);
         },
       });
 
@@ -599,7 +606,7 @@ export function App() {
         <Input onSubmit={handleSubmit} disabled={isLoading} history={inputHistory} />
       )}
 
-      <TokenUsage usage={tokenUsage} />
+      <TokenUsage usage={tokenUsage} sessionCost={sessionCost} />
     </Box>
   );
 }
