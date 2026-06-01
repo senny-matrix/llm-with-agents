@@ -3,7 +3,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { streamText, type ModelMessage } from 'ai';
 import { getTracer, Laminar } from '@lmnr-ai/lmnr';
-import { getDeepSeekProvider } from './providers/deepseek.ts';
+import { getModel, resolveModelName, resolveSummarizeModelName, type ProviderType } from './providers/index.ts';
 import { SYSTEM_PROMPT } from './system/prompt.ts';
 import { gatherWorkspaceContext, buildSystemPrompt } from './system/workspace.ts';
 import type { AgentCallbacks, ToolCallInfo } from '../types.ts';
@@ -21,10 +21,25 @@ import {
 
 config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
-const MODEL_NAME = process.env.AGENT_MODEL || 'deepseek-v4-pro';
-const SUMMARIZE_MODEL = process.env.SUMMARIZE_MODEL || 'deepseek-v4-flash';
+/** Runtime model override (set via /model command in TUI) */
+let _runtimeModelOverride: string | null = null;
+let _runtimeSummarizeOverride: string | null = null;
 
-const deepseek = getDeepSeekProvider();
+export function setRuntimeModel(model: string): void {
+  _runtimeModelOverride = model;
+}
+
+export function setRuntimeSummarizeModel(model: string): void {
+  _runtimeSummarizeOverride = model;
+}
+
+export function getCurrentModelName(): string {
+  return _runtimeModelOverride || process.env.AGENT_MODEL || 'deepseek-v4-pro';
+}
+
+export function getCurrentProvider(): ProviderType {
+  return (process.env.PROVIDER as ProviderType) || 'deepseek';
+}
 
 const lmnrApiKey = process.env.LMNR_PROJECT_API_KEY;
 if (lmnrApiKey) {
@@ -46,7 +61,8 @@ export const runAgent = async (
   conversationHistory: ModelMessage[],
   callbacks: AgentCallbacks,
 ): Promise<ModelMessage[]> => {
-  const modelLimits = getModelLimits(MODEL_NAME);
+  const effectiveModel = _runtimeModelOverride || resolveModelName();
+  const modelLimits = getModelLimits(effectiveModel);
   const dynamicSystemPrompt = getSystemPrompt();
 
   const workingHistory = filterCompatibleMessages(conversationHistory);
@@ -58,7 +74,7 @@ export const runAgent = async (
 
   const preCheckTokens = estimateMessagesTokens(messages);
   if (isOverThreshold(preCheckTokens.total, modelLimits.contextWindow)) {
-    messages = await compactConversation(workingHistory, SUMMARIZE_MODEL);
+    messages = await compactConversation(workingHistory, resolveSummarizeModelName(_runtimeSummarizeOverride ?? undefined));
     // Re-add the user message after compaction
     messages.push({ role: 'user', content: userMessage });
   }
@@ -74,7 +90,7 @@ export const runAgent = async (
 
   while (true) {
     const result = streamText({
-      model: deepseek.chat(MODEL_NAME),
+      model: getModel(resolveModelName(_runtimeModelOverride ?? undefined)),
       system: dynamicSystemPrompt,
       messages,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

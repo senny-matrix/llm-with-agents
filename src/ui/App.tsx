@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text, useApp } from "ink";
 import type { ModelMessage } from "ai";
-import { runAgent } from "../agent/run.ts";
+import { runAgent, setRuntimeModel, setRuntimeSummarizeModel, getCurrentModelName, getCurrentProvider } from "../agent/run.ts";
+import { setProviderConfig, type ProviderType } from "../agent/providers/index.ts";
 import { Logo } from "./components/Logo.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { MessageList, type Message } from "./components/MessageList.tsx";
@@ -51,6 +52,8 @@ export function App() {
     useState<ToolApprovalRequest | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(null);
   const [markdownMode, setMarkdownMode] = useState(false);
+  const [currentModel, setCurrentModel] = useState(getCurrentModelName());
+  const [currentProvider, setCurrentProvider] = useState<ProviderType>(getCurrentProvider());
   const sessionIdRef = useRef<string>(generateSessionId());
 
   // Load last session on startup
@@ -98,34 +101,83 @@ export function App() {
   const handleSubmit = useCallback(
     async (userInput: string) => {
       const input = userInput.trim().toLowerCase();
-      if (input === "exit" || input === "quit") {
+      // Normalize: strip optional leading "/" so both "/model" and "model" work
+      const cmd = input.startsWith("/") ? input.slice(1) : input;
+      if (cmd === "exit" || cmd === "quit") {
         exit();
         return;
       }
       // Mode switching commands (not sent to agent)
-      if (input === "auto") {
+      if (cmd === "auto") {
         setMode("auto");
         setMessages((prev) => [...prev, { role: "assistant", content: "🟢 Auto-approve mode enabled. All tool calls will run without confirmation." }]);
         return;
       }
-      if (input === "safe") {
+      if (cmd === "safe") {
         setMode("safe");
         setMessages((prev) => [...prev, { role: "assistant", content: "🛡️ Safe mode enabled. Tool calls will require your approval." }]);
         return;
       }
-      if (input === "clear") {
+      if (cmd === "clear") {
         setConversationHistory([]);
         setMessages([]);
         setTokenUsage(null);
         sessionIdRef.current = generateSessionId();
         return;
       }
-      if (input === "md" || input === "raw") {
+      if (cmd === "md" || cmd === "raw") {
         const nextMode = !markdownMode;
         setMarkdownMode(nextMode);
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: nextMode ? "📝 Rendered mode — markdown will be styled." : "📄 Raw mode — showing markdown as plain text." },
+        ]);
+        return;
+      }
+      // Model switching at runtime (supports both "model" and "/model")
+      if (cmd === "model") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `📋 Current model: **${currentModel}** on **${currentProvider}**.\nTo switch: \`/model <name>\` (e.g., \`/model openai/gpt-oss-20b\`)` },
+        ]);
+        return;
+      }
+      if (cmd.startsWith("model ")) {
+        // Extract model name after "model " or "/model " (handles both)
+        const offset = userInput.trim().startsWith("/") ? 7 : 6;
+        const newModel = userInput.trim().slice(offset).trim();
+        if (!newModel) {
+          setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Usage: `/model <model-name>` (e.g., `/model openai/gpt-oss-20b`)" }]);
+          return;
+        }
+        setRuntimeModel(newModel);
+        setRuntimeSummarizeModel(newModel);
+        setCurrentModel(newModel);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `🔁 Switched to model: **${newModel}** (provider: ${currentProvider})` },
+        ]);
+        return;
+      }
+      if (cmd === "provider") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `📋 Current provider: **${currentProvider}**.\nTo switch: \`/provider deepseek\` or \`/provider lmstudio\`` },
+        ]);
+        return;
+      }
+      if (cmd.startsWith("provider ")) {
+        const offset = userInput.trim().startsWith("/") ? 10 : 9;
+        const newProvider = userInput.trim().slice(offset).trim().toLowerCase() as ProviderType;
+        if (newProvider !== "deepseek" && newProvider !== "lmstudio") {
+          setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Usage: `/provider deepseek` or `/provider lmstudio`" }]);
+          return;
+        }
+        setProviderConfig({ provider: newProvider });
+        setCurrentProvider(newProvider);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `🔁 Switched provider to: **${newProvider}** (model: ${currentModel})` },
         ]);
         return;
       }
@@ -210,6 +262,15 @@ export function App() {
         <Text dimColor>
           {" "}("auto"/"safe" | "md"/"raw" to toggle markdown | "clear")
         </Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text dimColor>Model: </Text>
+        <Text color="cyan">{currentModel}</Text>
+        <Text dimColor> on </Text>
+        <Text color={currentProvider === "lmstudio" ? "magenta" : "cyan"} bold>
+          {currentProvider === "lmstudio" ? "🏠 LM Studio" : "☁️ DeepSeek"}
+        </Text>
+        <Text dimColor> (/model /provider)</Text>
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
