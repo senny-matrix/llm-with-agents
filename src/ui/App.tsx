@@ -307,68 +307,128 @@ export function App() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      try {
-        const newHistory = await runAgent(userInput, conversationHistory, {
-          onToken: (token) => {
-            setStreamingText((prev) => prev + token);
-          },
-          onToolCallStart: (name, args) => {
-            setActiveToolCalls((prev) => [
+      // Build callbacks (reused across retry attempts)
+      const makeCallbacks = (): Parameters<typeof runAgent>[2] => ({
+        onToken: (token) => {
+          setStreamingText((prev) => prev + token);
+        },
+        onToolCallStart: (name, args) => {
+          setActiveToolCalls((prev) => [
+            ...prev,
+            {
+              id: `${name}-${Date.now()}`,
+              name,
+              args,
+              status: "pending",
+            },
+          ]);
+        },
+        onToolCallEnd: (name, result) => {
+          setActiveToolCalls((prev) =>
+            prev.map((tc) =>
+              tc.name === name && tc.status === "pending"
+                ? { ...tc, status: "complete", result }
+                : tc,
+            ),
+          );
+        },
+        onComplete: (response) => {
+          if (response) {
+            setMessages((prev) => [
               ...prev,
+              { role: "assistant", content: response },
+            ]);
+          }
+          setStreamingText("");
+          setActiveToolCalls([]);
+        },
+        onToolApproval: (name, args) => {
+          if (mode === "auto") return Promise.resolve(true);
+          return new Promise<boolean>((resolve) => {
+            setPendingApproval({ toolName: name, args, resolve });
+          });
+        },
+        onTokenUsage: (usage) => {
+          setTokenUsage(usage);
+        },
+      });
+
+      // Truncate a message to fit within a reasonable size, keeping the
+      // first portion (the question) and the tail (error summary / final lines).
+      const truncate = (msg: string, maxLen = 3000): string => {
+        if (msg.length <= maxLen) return msg;
+        const head = msg.slice(0, Math.floor(maxLen * 0.8));
+        const tail = msg.slice(-Math.floor(maxLen * 0.2));
+        return `${head}\n\n... [${msg.length - maxLen} characters truncated] ...\n\n${tail}`;
+      };
+
+      let newHistory: ModelMessage[];
+      let attempt = 0;
+      const MAX_ATTEMPTS = 2;
+      let currentInput = userInput;
+
+      while (true) {
+        attempt++;
+        try {
+          newHistory = await runAgent(
+            currentInput,
+            conversationHistory,
+            makeCallbacks(),
+            controller.signal,
+          );
+          break; // Success — exit retry loop
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+
+          // Aborted by user — stop immediately
+          if (errMsg === "This operation was aborted") {
+            newHistory = conversationHistory;
+            break;
+          }
+
+          // Check if we should retry with truncated input
+          const isNoOutput =
+            errMsg.includes("No output generated") ||
+            (error as Error).name === "AI_NoOutputGeneratedError";
+          const isTooLarge =
+            errMsg.includes("too large") ||
+            errMsg.includes("context length") ||
+            errMsg.includes("maximum context") ||
+            errMsg.includes("token") ||
+            errMsg.includes("413") ||
+            errMsg.includes("400");
+
+          if (attempt < MAX_ATTEMPTS && currentInput.length > 1500 && (isNoOutput || isTooLarge)) {
+            // Retry with truncated input
+            const truncated = truncate(currentInput);
+            setMessages((prev) => [
+              ...prev.slice(0, -1), // Remove the user message (will re-add below)
+              { role: "user", content: userInput }, // Keep original displayed
               {
-                id: `${name}-${Date.now()}`,
-                name,
-                args,
-                status: "pending",
+                role: "assistant",
+                content: `⚠️ The input may be too long (${currentInput.length} chars). Retrying with ${truncated.length} chars…`,
               },
             ]);
-          },
-          onToolCallEnd: (name, result) => {
-            setActiveToolCalls((prev) =>
-              prev.map((tc) =>
-                tc.name === name && tc.status === "pending"
-                  ? { ...tc, status: "complete", result }
-                  : tc,
-              ),
-            );
-          },
-          onComplete: (response) => {
-            if (response) {
-              setMessages((prev) => [
-                ...prev,
-                { role: "assistant", content: response },
-              ]);
-            }
             setStreamingText("");
             setActiveToolCalls([]);
-          },
-          onToolApproval: (name, args) => {
-            if (mode === "auto") return Promise.resolve(true);
-            return new Promise<boolean>((resolve) => {
-              setPendingApproval({ toolName: name, args, resolve });
-            });
-          },
-          onTokenUsage: (usage) => {
-            setTokenUsage(usage);
-          },
-        }, controller.signal);
+            currentInput = truncated;
+            continue;
+          }
 
-        setConversationHistory(newHistory);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unknown error";
-        // Don't show error if it was an intentional abort
-        if (errorMessage !== "This operation was aborted") {
+          // Final failure — show error
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: `Error: ${errorMessage}` },
+            { role: "assistant", content: `Error: ${errMsg}` },
           ]);
+          setStreamingText("");
+          newHistory = conversationHistory;
+          break;
         }
-        setStreamingText("");
-      } finally {
-        setIsLoading(false);
-        abortRef.current = null;
       }
+
+      setConversationHistory(newHistory);
+      setIsLoading(false);
+      abortRef.current = null;
     },
     [conversationHistory, exit, mode],
   );
