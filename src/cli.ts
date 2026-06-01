@@ -46,6 +46,7 @@ if (args.includes("--help") || args.includes("-h")) {
   Image tools:
     imageInfo        Get image metadata (format, dimensions, size)
     imageToBase64    Encode image as base64 data URI
+
   Defaults:
     Model:    ${model}
     Provider: ${provider}
