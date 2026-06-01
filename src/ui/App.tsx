@@ -253,6 +253,39 @@ export function App() {
         return;
       }
 
+      // Conversation export
+      if (cmd === "export" || cmd.startsWith("export ")) {
+        const format = cmd === "export" ? "md" : cmd.slice(7).trim();
+        if (format !== "md" && format !== "json") {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "⚠️ Usage: `/export md` for Markdown or `/export json` for JSON." },
+          ]);
+          return;
+        }
+
+        if (conversationHistory.length === 0) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "📭 Nothing to export — the conversation is empty." },
+          ]);
+          return;
+        }
+
+        const sessionId = sessionIdRef.current;
+        const outPath =
+          format === "md"
+            ? exportMarkdown(conversationHistory, sessionId)
+            : exportJSON(conversationHistory, sessionId);
+
+        const ext = format === "md" ? "Markdown" : "JSON";
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `📄 Exported as ${ext}: \`${outPath}\`` },
+        ]);
+        return;
+      }
+
       // Session management
       if (cmd === "sessions" || cmd === "history") {
         const sessions = listSessions();
