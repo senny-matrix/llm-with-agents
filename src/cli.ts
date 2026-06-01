@@ -40,6 +40,9 @@ if (args.includes("--help") || args.includes("-h")) {
     Ctrl+L          Clear the conversation
     ↑ / ↓           Navigate input history
 
+  Auto-retry: When input is too long, the agent automatically retries
+    with a truncated version of your message.
+
   Defaults:
     Model:    ${model}
     Provider: ${provider}
