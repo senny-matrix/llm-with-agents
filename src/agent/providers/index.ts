@@ -1,6 +1,7 @@
 import { createDeepSeek } from '@ai-sdk/deepseek';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModel } from 'ai';
+import { getConfig } from '../config.ts';
 
 export type ProviderType = 'deepseek' | 'lmstudio';
 
@@ -15,10 +16,10 @@ export interface ProviderConfig {
 }
 
 let _config: ProviderConfig = {
-  provider: (process.env.PROVIDER as ProviderType) || 'deepseek',
-  lmstudioBaseURL: process.env.LMSTUDIO_BASE_URL || 'http://localhost:1234/v1',
+  provider: getConfig().defaultProvider,
+  lmstudioBaseURL: getConfig().lmstudioUrl,
   lmstudioApiKey: process.env.LMSTUDIO_API_KEY || '',
-  deepseekApiKey: process.env.OPENAI_API_KEY,
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
 };
 
 // Cached provider instances
@@ -70,7 +71,7 @@ export function getModel(modelId: string): LanguageModel {
  */
 export function resolveModelName(override?: string): string {
   if (override) return override;
-  return process.env.AGENT_MODEL || 'deepseek-v4-pro';
+  return getConfig().defaultModel;
 }
 
 export function resolveSummarizeModelName(override?: string): string {
