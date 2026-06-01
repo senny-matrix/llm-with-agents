@@ -2,6 +2,7 @@ import { dateTime } from "./dateTime.ts";
 import { deleteFile, listFiles, readFile, writeFile, editFile, grep } from "./file.ts";
 import { webSearch} from "./webSearch.ts";
 import { runCommand } from "./shell.ts";
+import { delegate } from "./delegate.ts";
 
 // All tools combined for the agent
 export const tools = {
@@ -14,6 +15,7 @@ export const tools = {
     grep,
     webSearch,
     runCommand,
+    delegate,
 };
 
 export const readOnlyTools = { readFile, listFiles, grep, dateTime, webSearch };
