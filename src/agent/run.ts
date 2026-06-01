@@ -139,15 +139,17 @@ export const runAgent = async (
       }
     } catch (e) {
       streamError = e as Error;
-      if (!currentText && !streamError.message.includes('No output generated')) {
+      const msg = streamError.message ?? '';
+      if (!currentText && !msg.includes('No output generated') && streamError.name !== 'AI_NoOutputGeneratedError') {
         throw streamError;
       }
     }
 
     fullResponse += currentText;
 
-    if (streamError && !currentText && toolCalls.length === 0) {
-      fullResponse = 'Sorry about that, I am working on it!';
+    // No output at all — model produced nothing (empty input, context overflow, etc.)
+    if (!currentText && toolCalls.length === 0) {
+      fullResponse = 'The model returned nothing for this input. The pasted content may be too long or exceed the context window. Try a shorter message or break it into smaller parts.';
       callbacks?.onToken?.(fullResponse);
       break;
     }
