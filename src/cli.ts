@@ -40,6 +40,10 @@ if (args.includes("--help") || args.includes("-h")) {
     Ctrl+L          Clear the conversation
     ↑ / ↓           Navigate input history
 
+  Image tools:
+    imageInfo        Get image metadata (format, dimensions, size)
+    imageToBase64    Encode image as base64 data URI
+
   Defaults:
     Model:    ${model}
     Provider: ${provider}

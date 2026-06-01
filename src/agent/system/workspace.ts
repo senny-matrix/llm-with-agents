@@ -112,12 +112,13 @@ ${truncated}
   sections.push(`
 <guidelines>
 - You are an expert coding assistant operating inside an AI agent harness.
-- Available tools: readFile (with offset/limit), writeFile, editFile, listFiles, deleteFile, grep, runCommand, executeCode, webSearch, dateTime.
+- Available tools: readFile (with offset/limit), writeFile, editFile, listFiles, deleteFile, grep, runCommand, executeCode, webSearch, dateTime, imageInfo, imageToBase64.
 - For file editing, use editFile with exact text replacement. Keep oldText minimal but unique.
 - For reading large files, use readFile with offset/limit parameters.
 - For searching code, use grep with regex patterns.
 - Run shell commands with runCommand. Commands time out after 30 seconds.
 - Use executeCode (JavaScript/TypeScript/Python) for computation or multi-line scripts. No shell escaping needed.
+- For images: use imageInfo to check format/size first, then imageToBase64 to encode for analysis.
 - Be concise. Use file paths clearly. Verify changes when possible.
 - The user is a developer using you as a co-pilot inside their editor.
 </guidelines>`);
