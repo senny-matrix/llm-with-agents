@@ -49,6 +49,19 @@ if (args.includes("--help") || args.includes("-h")) {
     DEEPSEEK_API_KEY   API key for the DeepSeek provider
     LMSTUDIO_URL       LM Studio base URL (default: http://localhost:1234/v1)
     AGENT_MODEL        Override the default model name
+    AGI_MODE           Override default mode (safe | auto)
+    AGI_MARKDOWN       Override markdown rendering (true | false)
+
+  Config file (~/.agirc.json):
+    Settings are loaded from ~/.agirc.json on startup (env vars override).
+    Sample config:
+    {
+      "defaultModel": "deepseek-v4-pro",
+      "defaultProvider": "deepseek",
+      "mode": "safe",
+      "markdown": false,
+      "lmstudioUrl": "http://localhost:1234/v1"
+    }
 `);
   process.exit(0);
 }

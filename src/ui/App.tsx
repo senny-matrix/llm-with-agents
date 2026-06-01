@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import type { ModelMessage } from "ai";
 import { runAgent, setRuntimeModel, setRuntimeSummarizeModel, getCurrentModelName, getCurrentProvider } from "../agent/run.ts";
 import { setProviderConfig, type ProviderType } from "../agent/providers/index.ts";
+import { getConfig } from "../agent/config.ts";
 import { Logo } from "./components/Logo.tsx";
 import { Markdown } from "./components/Markdown.tsx";
 import { MessageList, type Message } from "./components/MessageList.tsx";
@@ -40,7 +41,8 @@ function extractAssistantText(msg: ModelMessage): string {
 
 export function App() {
   const { exit } = useApp();
-  const [mode, setMode] = useState<ApprovalMode>("safe");
+  const cfg = getConfig();
+  const [mode, setMode] = useState<ApprovalMode>(cfg.mode);
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationHistory, setConversationHistory] = useState<
     ModelMessage[]
@@ -51,7 +53,7 @@ export function App() {
   const [pendingApproval, setPendingApproval] =
     useState<ToolApprovalRequest | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(null);
-  const [markdownMode, setMarkdownMode] = useState(false);
+  const [markdownMode, setMarkdownMode] = useState(cfg.markdown);
   const [currentModel, setCurrentModel] = useState(getCurrentModelName());
   const [currentProvider, setCurrentProvider] = useState<ProviderType>(getCurrentProvider());
   const sessionIdRef = useRef<string>(generateSessionId());
