@@ -31,6 +31,8 @@ if (args.includes("--help") || args.includes("-h")) {
     /provider       Show the current provider
     /provider <p>   Switch provider (deepseek | lmstudio)
     /exit, /quit    Exit the agent
+    /sessions       List all saved conversation sessions
+    /load <id>      Load a previously saved session by ID
 
   Defaults:
     Model:    ${model}

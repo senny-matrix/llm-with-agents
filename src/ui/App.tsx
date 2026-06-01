@@ -182,6 +182,82 @@ export function App() {
         return;
       }
 
+      // Session management
+      if (cmd === "sessions" || cmd === "history") {
+        const sessions = listSessions();
+        if (sessions.length === 0) {
+          setMessages((prev) => [...prev, { role: "assistant", content: "📭 No saved sessions found. Start a conversation to create one." }]);
+          return;
+        }
+        const currentId = sessionIdRef.current;
+        const lines = [
+          `📂 **Saved sessions** (${sessions.length} total, newest first):`,
+          "",
+          ...sessions.map((s, i) => {
+            const isCurrent = s.id === currentId;
+            const prefix = isCurrent ? "★" : " ";
+            const date = s.updatedAt.slice(0, 16).replace("T", " ");
+            const msgs = `${s.messageCount} msg${s.messageCount !== 1 ? "s" : ""}`;
+            const idShort = s.id.slice(-14); // last 14 chars of ID
+            return `${prefix} **${i + 1}.** \`${idShort}\` — ${date} — ${msgs}`;
+          }),
+          "",
+          "Use `/load <id>` to switch to a session (e.g., `/load " + sessions[0].id.slice(-14) + "`).",
+          "★ = current session",
+        ];
+        setMessages((prev) => [...prev, { role: "assistant", content: lines.join("\n") }]);
+        return;
+      }
+
+      if (cmd.startsWith("load ")) {
+        const offset = userInput.trim().startsWith("/") ? 6 : 5;
+        const loadId = userInput.trim().slice(offset).trim();
+        if (!loadId) {
+          setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Usage: `/load <session-id>` (use `/sessions` to list saved sessions)" }]);
+          return;
+        }
+
+        // Try exact match first, then partial suffix match
+        let session = loadSession(loadId);
+        if (!session) {
+          const sessions = listSessions();
+          const match = sessions.find(s => s.id.endsWith(loadId));
+          if (match) {
+            session = loadSession(match.id);
+          }
+        }
+
+        if (!session) {
+          setMessages((prev) => [...prev, { role: "assistant", content: `❌ Session not found: \`${loadId}\`. Use \`/sessions\` to list available sessions.` }]);
+          return;
+        }
+
+        // Load the session
+        sessionIdRef.current = session.meta.id;
+        setConversationHistory(session.messages);
+        setTokenUsage(null);
+
+        // Reconstruct display messages from loaded session
+        const displayMsgs: Message[] = [];
+        for (const msg of session.messages) {
+          if (msg.role === "user" && typeof msg.content === "string") {
+            displayMsgs.push({ role: "user", content: msg.content });
+          } else if (msg.role === "assistant") {
+            const text = extractAssistantText(msg);
+            if (text) displayMsgs.push({ role: "assistant", content: text });
+          }
+        }
+
+        // Add a system message about the session switch
+        const date = session.meta.updatedAt.slice(0, 16).replace("T", " ");
+        displayMsgs.push({
+          role: "assistant",
+          content: `📂 Loaded session **${session.meta.name || session.meta.id.slice(-14)}** (${date}, ${session.meta.messageCount} messages)`,
+        });
+        setMessages(displayMsgs);
+        return;
+      }
+
       setMessages((prev) => [...prev, { role: "user", content: userInput }]);
       setIsLoading(true);
       setStreamingText("");
