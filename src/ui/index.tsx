@@ -1,5 +1,6 @@
 export { App } from './App.tsx';
 export { Logo } from './components/Logo.tsx';
+export { Markdown } from './components/Markdown.tsx';
 export { MessageList, type Message } from './components/MessageList.tsx';
 export { ToolCall, type ToolCallProps } from './components/ToolCall.tsx';
 export { Spinner } from './components/Spinner.tsx';

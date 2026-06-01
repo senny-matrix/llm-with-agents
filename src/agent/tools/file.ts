@@ -161,7 +161,7 @@ export const listFiles = tool({
     inputSchema: z.object({
         directory: z
             .string()
-            .describe('The dirctory path to list the contents of')
+            .describe('The directory path to list the contents of')
             .default('.'),
     }),
     execute: async ({ directory }) => {
@@ -183,7 +183,7 @@ export const listFiles = tool({
 export const deleteFile = tool({
     description: 'Delete the file at the specified given path. Use with caution as this is very destructive and can not be undone.',
     inputSchema: z.object({
-        path: z.string().describe('The absolute or relative path to the file you wantto delete'),
+        path: z.string().describe('The absolute or relative path to the file you want to delete'),
     }),
     execute: async ({ path }) => {
         try {
