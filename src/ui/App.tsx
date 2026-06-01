@@ -3,6 +3,7 @@ import { Box, Text, useApp } from "ink";
 import type { ModelMessage } from "ai";
 import { runAgent } from "../agent/run.ts";
 import { Logo } from "./components/Logo.tsx";
+import { Markdown } from "./components/Markdown.tsx";
 import { MessageList, type Message } from "./components/MessageList.tsx";
 import { ToolCall, type ToolCallProps } from "./components/ToolCall.tsx";
 import { Spinner } from "./components/Spinner.tsx";
@@ -49,6 +50,7 @@ export function App() {
   const [pendingApproval, setPendingApproval] =
     useState<ToolApprovalRequest | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageInfo | null>(null);
+  const [markdownMode, setMarkdownMode] = useState(false);
   const sessionIdRef = useRef<string>(generateSessionId());
 
   // Load last session on startup
@@ -116,6 +118,15 @@ export function App() {
         setMessages([]);
         setTokenUsage(null);
         sessionIdRef.current = generateSessionId();
+        return;
+      }
+      if (input === "md" || input === "raw") {
+        const nextMode = !markdownMode;
+        setMarkdownMode(nextMode);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: nextMode ? "📝 Rendered mode — markdown will be styled." : "📄 Raw mode — showing markdown as plain text." },
+        ]);
         return;
       }
 
@@ -196,11 +207,32 @@ export function App() {
         <Text color={mode === "auto" ? "green" : "yellow"} bold>
           {mode === "auto" ? "🟢 AUTO" : "🛡️ SAFE"}
         </Text>
-        <Text dimColor> ("auto"/"safe" to switch | "clear" to reset)</Text>
+        <Text dimColor>
+          {" "}("auto"/"safe" | "md"/"raw" to toggle markdown | "clear")
+        </Text>
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
-        <MessageList messages={messages} />
+        {markdownMode ? (
+          <Box flexDirection="column">
+            {messages.map((msg, i) => (
+              <Box key={i} flexDirection="column" marginBottom={1}>
+                <Text color={msg.role === "user" ? "blue" : "green"} bold>
+                  {msg.role === "user" ? "› You" : "› Assistant"}
+                </Text>
+                <Box marginLeft={2}>
+                  {msg.role === "assistant" ? (
+                    <Markdown>{msg.content}</Markdown>
+                  ) : (
+                    <Text>{msg.content}</Text>
+                  )}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        ) : (
+          <MessageList messages={messages} />
+        )}
 
         {streamingText && (
           <Box flexDirection="column" marginTop={1}>
@@ -208,7 +240,13 @@ export function App() {
               › Assistant
             </Text>
             <Box marginLeft={2}>
-              <Text>{streamingText}</Text>
+              {markdownMode ? (
+                <Box flexDirection="column">
+                  <Markdown>{streamingText}</Markdown>
+                </Box>
+              ) : (
+                <Text>{streamingText}</Text>
+              )}
               <Text color="gray">▌</Text>
             </Box>
           </Box>
