@@ -38,6 +38,38 @@ function extractAssistantText(msg: ModelMessage): string {
   return "";
 }
 
+/**
+ * Renders streaming markdown progressively.
+ * Complete paragraphs (separated by \n\n) are rendered as styled markdown.
+ * The in-progress paragraph is shown as raw text with a blinking cursor.
+ */
+function StreamingOutput({ text }: { text: string }) {
+  const paragraphs = text.split("\n\n");
+
+  // All paragraphs except the last are complete and ready to render
+  const complete = paragraphs.slice(0, -1);
+  const pending = paragraphs[paragraphs.length - 1] || "";
+
+  return (
+    <Box flexDirection="column">
+      {complete.map((p, i) => (
+        <Markdown key={i}>{p}</Markdown>
+      ))}
+      {pending !== "" && (
+        <Box>
+          <Text>{pending}</Text>
+          <Text color="gray">▌</Text>
+        </Box>
+      )}
+      {complete.length > 0 && pending === "" && (
+        <Box>
+          <Text color="gray">▌</Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export function App() {
   const { exit } = useApp();
   const [mode, setMode] = useState<ApprovalMode>("safe");
@@ -422,15 +454,15 @@ export function App() {
             <Text color="green" bold>
               › Assistant
             </Text>
-            <Box marginLeft={2}>
+            <Box marginLeft={2} flexDirection="column">
               {markdownMode ? (
-                <Box flexDirection="column">
-                  <Markdown>{streamingText}</Markdown>
-                </Box>
+                <StreamingOutput text={streamingText} />
               ) : (
-                <Text>{streamingText}</Text>
+                <Box>
+                  <Text>{streamingText}</Text>
+                  <Text color="gray">▌</Text>
+                </Box>
               )}
-              <Text color="gray">▌</Text>
             </Box>
           </Box>
         )}
