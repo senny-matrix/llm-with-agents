@@ -4,6 +4,9 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./ui/index.tsx";
 import { getCurrentModelName, getCurrentProvider } from "./agent/run.ts";
+import { getConfig } from "./agent/config.ts";
+import { connectMCPServers, getConnectedServers } from "./agent/mcp/index.ts";
+import { addMCPTools } from "./agent/tools/index.ts";
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
@@ -33,6 +36,8 @@ if (args.includes("--help") || args.includes("-h")) {
     /exit, /quit    Exit the agent
     /sessions       List all saved conversation sessions
     /load <id>      Load a previously saved session by ID
+    /export md      Export conversation as Markdown
+    /export json    Export conversation as JSON
 
   Keyboard shortcuts:
     Ctrl+C          Interrupt running agent (press again if idle to exit)
@@ -67,10 +72,31 @@ if (args.includes("--help") || args.includes("-h")) {
       "defaultProvider": "deepseek",
       "mode": "safe",
       "markdown": false,
-      "lmstudioUrl": "http://localhost:1234/v1"
+      "lmstudioUrl": "http://localhost:1234/v1",
+      "mcpServers": [
+        {
+          "name": "filesystem",
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+        }
+      ]
     }
 `);
   process.exit(0);
 }
 
-render(React.createElement(App));
+// Connect to MCP servers before rendering the TUI
+const cfg = getConfig();
+if (cfg.mcpServers.length > 0) {
+  connectMCPServers(cfg.mcpServers).then((mcpTools) => {
+    addMCPTools(mcpTools);
+    const connected = getConnectedServers();
+    console.error(`MCP: ${connected.length}/${cfg.mcpServers.length} server(s) connected, ${Object.keys(mcpTools).length} tool(s) available`);
+    render(React.createElement(App));
+  }).catch((err) => {
+    console.error(`MCP: Initialization failed — ${err.message}`);
+    render(React.createElement(App));
+  });
+} else {
+  render(React.createElement(App));
+}

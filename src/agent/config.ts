@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 import type { ProviderType } from "./providers/index.ts";
+import type { MCPServerConfig } from "./mcp/client.ts";
 
 export interface AgiConfig {
   /** Default model name (overridden by AGENT_MODEL env var) */
@@ -14,6 +15,8 @@ export interface AgiConfig {
   markdown: boolean;
   /** LM Studio base URL */
   lmstudioUrl: string;
+  /** MCP server configurations */
+  mcpServers: MCPServerConfig[];
 }
 
 const DEFAULTS: AgiConfig = {
@@ -22,6 +25,7 @@ const DEFAULTS: AgiConfig = {
   mode: "safe",
   markdown: false,
   lmstudioUrl: "http://localhost:1234/v1",
+  mcpServers: [],
 };
 
 const CONFIG_PATH = resolve(homedir(), ".agirc.json");
@@ -69,6 +73,8 @@ export function loadConfig(): AgiConfig {
       process.env.LMSTUDIO_URL ||
       file.lmstudioUrl ||
       DEFAULTS.lmstudioUrl,
+    mcpServers:
+      file.mcpServers ?? DEFAULTS.mcpServers,
   };
 
   return _config;
@@ -95,6 +101,13 @@ export function sampleConfig(): string {
       mode: "safe",
       markdown: false,
       lmstudioUrl: "http://localhost:1234/v1",
+      mcpServers: [
+        {
+          name: "filesystem",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+        },
+      ],
     },
     null,
     2,
