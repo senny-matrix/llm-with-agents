@@ -132,6 +132,7 @@ export const runAgent = async (
       const content: any[] = [];
       if (currentText) content.push({ type: 'text', text: currentText });
       const toolCallsForMessage: any[] = [];
+
       for (const tc of toolCalls) {
         const toolCallPart = {
           type: 'tool-call',
@@ -169,7 +170,14 @@ export const runAgent = async (
     }
 
     const toolResults: string[] = [];
+    let rejected = false;
+
     for (const tc of toolCalls) {
+      const approved = callbacks.onToolApproval ? await callbacks.onToolApproval(tc.toolName, tc.args) : true;
+      if (!approved) {
+        rejected = true;
+        continue;
+      }
       const toolResult = await executeTool(tc.toolName as ToolName, tc.args);
 
       callbacks?.onToolCallEnd?.(tc.toolName, toolResult);
