@@ -43,6 +43,9 @@ if (args.includes("--help") || args.includes("-h")) {
   Auto-retry: When input is too long, the agent automatically retries
     with a truncated version of your message.
 
+  Image tools:
+    imageInfo        Get image metadata (format, dimensions, size)
+    imageToBase64    Encode image as base64 data URI
   Defaults:
     Model:    ${model}
     Provider: ${provider}
