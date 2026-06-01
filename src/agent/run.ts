@@ -2,34 +2,43 @@ import { config } from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { streamText, type ModelMessage } from 'ai';
-import { createDeepSeek } from '@ai-sdk/deepseek';
 import { getTracer, Laminar } from '@lmnr-ai/lmnr';
+import { getDeepSeekProvider } from './providers/deepseek.ts';
 import { SYSTEM_PROMPT } from './system/prompt.ts';
-import type {AgentCallbacks, ToolCallInfo} from '../types.ts';
+import { gatherWorkspaceContext, buildSystemPrompt } from './system/workspace.ts';
+import type { AgentCallbacks, ToolCallInfo } from '../types.ts';
 import { tools } from './tools/index.ts';
 import { executeTool, type ToolName } from './executeTools.ts';
-import { filterCompatibleMessages} from "./system/filterMessages.ts";
+import { filterCompatibleMessages } from './system/filterMessages.ts';
 import {
-  estimateTokens,
   getModelLimits,
   isOverThreshold,
   calculateUsagePercentage,
   compactConversation,
   DEFAULT_THRESHOLD,
-  estimateMessagesTokens
+  estimateMessagesTokens,
 } from './context/index.ts';
 
 config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
-const MODEL_NAME = 'deepseek-v4-pro';
+const MODEL_NAME = process.env.AGENT_MODEL || 'deepseek-v4-pro';
+const SUMMARIZE_MODEL = process.env.SUMMARIZE_MODEL || 'deepseek-v4-flash';
 
-const deepseek = createDeepSeek({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const deepseek = getDeepSeekProvider();
 
 const lmnrApiKey = process.env.LMNR_PROJECT_API_KEY;
 if (lmnrApiKey) {
   Laminar.initialize({ projectApiKey: lmnrApiKey });
+}
+
+// Build the dynamic system prompt once per process
+let _systemPromptCache: string | null = null;
+function getSystemPrompt(): string {
+  if (!_systemPromptCache) {
+    const ctx = gatherWorkspaceContext();
+    _systemPromptCache = buildSystemPrompt(SYSTEM_PROMPT, ctx);
+  }
+  return _systemPromptCache;
 }
 
 export const runAgent = async (
@@ -38,37 +47,39 @@ export const runAgent = async (
   callbacks: AgentCallbacks,
 ): Promise<ModelMessage[]> => {
   const modelLimits = getModelLimits(MODEL_NAME);
+  const dynamicSystemPrompt = getSystemPrompt();
 
   const workingHistory = filterCompatibleMessages(conversationHistory);
 
   let messages: ModelMessage[] = [
-  ...workingHistory,
-  { role: 'user', content: userMessage }
-];
+    ...workingHistory,
+    { role: 'user', content: userMessage },
+  ];
 
-  let preCheckTokens = estimateMessagesTokens(messages);
-  if(isOverThreshold(preCheckTokens.total, modelLimits.contextWindow)) {
-    messages = await compactConversation(workingHistory, MODEL_NAME);
+  const preCheckTokens = estimateMessagesTokens(messages);
+  if (isOverThreshold(preCheckTokens.total, modelLimits.contextWindow)) {
+    messages = await compactConversation(workingHistory, SUMMARIZE_MODEL);
+    // Re-add the user message after compaction
+    messages.push({ role: 'user', content: userMessage });
   }
 
-  let fullResponse = "";
+  let fullResponse = '';
 
   const toolsWithoutExecute = Object.fromEntries(
     Object.entries(tools).map(([name, t]) => {
       const { execute, ...rest } = t;
       return [name, rest];
-    })
+    }),
   );
 
-  let iteration = 0;
-  while(true) {
-    iteration++;
+  while (true) {
     const result = streamText({
       model: deepseek.chat(MODEL_NAME),
-      system: SYSTEM_PROMPT,
+      system: dynamicSystemPrompt,
       messages,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: toolsWithoutExecute as any,
+      maxOutputTokens: modelLimits.outputLimit,
       experimental_telemetry: {
         isEnabled: true,
         tracer: getTracer(),
@@ -84,21 +95,18 @@ export const runAgent = async (
           totalTokens: usage.total,
           threshold: DEFAULT_THRESHOLD,
           contextWindow: modelLimits.contextWindow,
-          percentage: calculateUsagePercentage(
-            usage.total,
-            modelLimits.contextWindow
-          )
+          percentage: calculateUsagePercentage(usage.total, modelLimits.contextWindow),
         });
       }
-    }
+    };
 
     const toolCalls: ToolCallInfo[] = [];
-    let currentText = "";
+    let currentText = '';
     let streamError: Error | null = null;
 
     try {
       for await (const chunk of result.fullStream) {
-        if (chunk.type === 'text-delta'){
+        if (chunk.type === 'text-delta') {
           currentText += chunk.text;
           callbacks?.onToken?.(chunk.text);
         }
@@ -108,14 +116,14 @@ export const runAgent = async (
           toolCalls.push({
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
-            args: input as any
+            args: input as Record<string, unknown>,
           });
           callbacks?.onToolCallStart?.(chunk.toolName, input);
         }
       }
-    }catch(e){
+    } catch (e) {
       streamError = e as Error;
-      if(!currentText && !streamError.message.includes('No output generated')) {
+      if (!currentText && !streamError.message.includes('No output generated')) {
         throw streamError;
       }
     }
@@ -123,38 +131,25 @@ export const runAgent = async (
     fullResponse += currentText;
 
     if (streamError && !currentText && toolCalls.length === 0) {
-      fullResponse = 'Sorry about that, I am working on it!!';
+      fullResponse = 'Sorry about that, I am working on it!';
       callbacks?.onToken?.(fullResponse);
       break;
     }
 
+    // Handle stream error with partial results
     if (streamError) {
-      const content: any[] = [];
+      const content: Array<{ type: string; text?: string; toolCallId?: string; toolName?: string; input?: unknown }> = [];
       if (currentText) content.push({ type: 'text', text: currentText });
-      const toolCallsForMessage: any[] = [];
 
       for (const tc of toolCalls) {
-        const toolCallPart = {
+        content.push({
           type: 'tool-call',
           toolCallId: tc.toolCallId,
           toolName: tc.toolName,
           input: tc.args,
-        };
-        content.push(toolCallPart);
-        toolCallsForMessage.push({
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          args: tc.args,
         });
       }
-      const assistantMessage: any = {
-        role: 'assistant',
-        content,
-      };
-      if (toolCallsForMessage.length > 0) {
-        assistantMessage.toolCalls = toolCallsForMessage;
-      }
-      messages.push(assistantMessage);
+      messages.push({ role: 'assistant', content } as ModelMessage);
       if (toolCalls.length === 0) break;
     } else {
       const finishReason = await result.finishReason;
@@ -170,12 +165,12 @@ export const runAgent = async (
     }
 
     const toolResults: string[] = [];
-    let rejected = false;
 
     for (const tc of toolCalls) {
-      const approved = callbacks.onToolApproval ? await callbacks.onToolApproval(tc.toolName, tc.args) : true;
+      const approved = callbacks.onToolApproval
+        ? await callbacks.onToolApproval(tc.toolName, tc.args)
+        : true;
       if (!approved) {
-        rejected = true;
         continue;
       }
       const toolResult = await executeTool(tc.toolName as ToolName, tc.args);
@@ -185,16 +180,18 @@ export const runAgent = async (
 
       messages.push({
         role: 'tool',
-        content: [{
-          type: 'tool-result',
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          output: {
-            type: 'text',
-            value: toolResult,
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: tc.toolCallId,
+            toolName: tc.toolName,
+            output: {
+              type: 'text',
+              value: toolResult,
+            },
           },
-        }],
-      });
+        ],
+      } as ModelMessage);
       reportTokenUsage();
     }
 

@@ -10,6 +10,16 @@ export const DEFAULT_THRESHOLD = 0.8;
  * Currently only includes GPT-5 models
  */
 const MODEL_LIMITS: Record<string, ModelLimits> = {
+  "deepseek-v4-pro": {
+    inputLimit: 128000,
+    outputLimit: 32000,
+    contextWindow: 262144, // 256K
+  },
+  "deepseek-v4-flash": {
+    inputLimit: 96000,
+    outputLimit: 32000,
+    contextWindow: 131072, // 128K
+  },
   "gpt-5": {
     inputLimit: 272000,
     outputLimit: 128000,

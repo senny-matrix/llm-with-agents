@@ -1,6 +1,6 @@
 import { generateText, type ModelMessage } from "ai";
 import { extractMessageText } from "./tokenEstimator.ts";
-import { createDeepSeek } from '@ai-sdk/deepseek';
+import { getDeepSeekProvider } from "../providers/deepseek.ts";
 
 
 const SUMMARIZATION_PROMPT = `You are a conversation summarizer. Your task is to create a concise summary of the conversation so far that preserves:
@@ -15,9 +15,7 @@ Be concise but complete. The summary should allow the conversation to continue n
 Conversation to summarize:
 `;
 
-const deepseek = createDeepSeek({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const deepseek = getDeepSeekProvider();
 
 /**
  * Format messages array as readable text for summarization
@@ -44,8 +42,8 @@ function messagesToText(messages: ModelMessage[]): string {
  */
 export async function compactConversation(
   messages: ModelMessage[],
-  model: string = "deepseek-v4-flash",
-): Promise< any> {
+  model: string,
+): Promise<ModelMessage[]> {
   const conversationMessages = messages.filter((m) => m.role !== "system");
 
   if (conversationMessages.length === 0) return [];

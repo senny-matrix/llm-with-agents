@@ -1,22 +1,25 @@
-import {tools} from "./tools/index.ts";
+import { tools } from "./tools/index.ts";
 
 export type ToolName = keyof typeof tools;
 
-export const executeTool = async (name: ToolName, args: any) => {
+export const executeTool = async (name: ToolName, args: unknown): Promise<string> => {
     const tool = tools[name];
     if (!tool) {
-        return 'Unknown tool, this does not exists';
-    }
-    const execute = tool.execute;
-
-    if (!execute) {
-        return 'This tool does not have an execute function and not registered tool';
+        return `Unknown tool "${name}". Available tools: ${Object.keys(tools).join(', ')}`;
     }
 
-    const result =  await tool.execute(args, {
-        toolCallId: '',
-        messages: [],
-    });
+    if (!tool.execute) {
+        return `Tool "${name}" does not have an execute function.`;
+    }
 
-    return String(result);
-}
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await (tool.execute as any)(args, {
+            toolCallId: '',
+            messages: [],
+        });
+        return String(result);
+    } catch (e) {
+        return `Error executing tool "${name}": ${e instanceof Error ? e.message : String(e)}`;
+    }
+};
