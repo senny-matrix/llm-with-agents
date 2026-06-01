@@ -7,7 +7,9 @@ import { executeCode } from "./executeCode.ts";
 import { imageInfo, imageToBase64 } from "./image.ts";
 
 // All tools combined for the agent
-export const tools = {
+// MCP tools are added dynamically via addMCPTools() before agent runs
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const tools: Record<string, any> = {
     dateTime,
     readFile,
     writeFile,
@@ -22,6 +24,13 @@ export const tools = {
     imageToBase64,
     delegate,
 };
+
+/** Add dynamically discovered MCP tools to the global tools map */
+export function addMCPTools(
+  mcpTools: Record<string, unknown>,
+): void {
+  Object.assign(tools, mcpTools);
+}
 
 export const readOnlyTools = { readFile, listFiles, grep, dateTime, webSearch };
 export const fileTools = { readFile, writeFile, editFile, deleteFile, listFiles, grep };

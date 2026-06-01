@@ -112,7 +112,7 @@ ${truncated}
   sections.push(`
 <guidelines>
 - You are an expert coding assistant operating inside an AI agent harness.
-- Available tools: readFile (with offset/limit), writeFile, editFile, listFiles, deleteFile, grep, runCommand, executeCode, webSearch, dateTime, imageInfo, imageToBase64.
+- Available tools: readFile (with offset/limit), writeFile, editFile, listFiles, deleteFile, grep, runCommand, executeCode, webSearch, dateTime, imageInfo, imageToBase64, plus any MCP tools (prefixed with server name).
 - For file editing, use editFile with exact text replacement. Keep oldText minimal but unique.
 - For reading large files, use readFile with offset/limit parameters.
 - For searching code, use grep with regex patterns.
