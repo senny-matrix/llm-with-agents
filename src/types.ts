@@ -5,6 +5,7 @@ export interface AgentCallbacks {
   onComplete?: (response: string) => void;
   onToolApproval?: (name: string, args: unknown) => Promise<boolean>;
   onTokenUsage?: (usage: TokenUsageInfo) => void;
+  onCostUpdate?: (cost: CostUpdateInfo) => void;
 }
 
 export interface ToolApprovalRequest {
@@ -32,4 +33,14 @@ export interface TokenUsageInfo {
   contextWindow: number;
   threshold: number;
   percentage: number;
+  /** Cost for this specific request */
+  requestCost?: number;
+}
+
+/** Accumulated cost across the session */
+export interface CostUpdateInfo {
+  /** Cost added by the most recent request */
+  addedCost: number;
+  /** Running total for the session */
+  sessionCost: number;
 }

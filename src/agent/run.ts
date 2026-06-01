@@ -5,6 +5,7 @@ import { streamText, type ModelMessage } from 'ai';
 import { getTracer, Laminar } from '@lmnr-ai/lmnr';
 import { getModel, resolveModelName, resolveSummarizeModelName, type ProviderType } from './providers/index.ts';
 import { getConfig } from './config.ts';
+import { calculateCost } from './cost.ts';
 import { SYSTEM_PROMPT } from './system/prompt.ts';
 import { gatherWorkspaceContext, buildSystemPrompt } from './system/workspace.ts';
 import type { AgentCallbacks, ToolCallInfo } from '../types.ts';
@@ -111,17 +112,33 @@ export const runAgent = async (
       },
     });
 
-    const reportTokenUsage = () => {
+    const reportTokenUsage = (actualInput?: number, actualOutput?: number) => {
       if (callbacks.onTokenUsage) {
         const usage = estimateMessagesTokens(messages);
+        // Prefer actual counts from API response when available
+        const inputTokens = actualInput ?? usage.input;
+        const outputTokens = actualOutput ?? usage.output;
+        const totalTokens = inputTokens + outputTokens;
+
+        const effectiveModel = _runtimeModelOverride || resolveModelName();
+        const cost = calculateCost(effectiveModel, inputTokens, outputTokens);
+
         callbacks.onTokenUsage({
-          inputTokens: usage.input,
-          outputTokens: usage.output,
-          totalTokens: usage.total,
+          inputTokens,
+          outputTokens,
+          totalTokens,
           threshold: DEFAULT_THRESHOLD,
           contextWindow: modelLimits.contextWindow,
-          percentage: calculateUsagePercentage(usage.total, modelLimits.contextWindow),
+          percentage: calculateUsagePercentage(totalTokens, modelLimits.contextWindow),
+          requestCost: cost.totalCost,
         });
+
+        if (callbacks.onCostUpdate) {
+          callbacks.onCostUpdate({
+            addedCost: cost.totalCost,
+            sessionCost: 0, // accumulated by the TUI
+          });
+        }
       }
     };
 
@@ -183,12 +200,15 @@ export const runAgent = async (
       if (finishReason !== 'tool-calls' || toolCalls.length === 0) {
         const responseMessage = await result.response;
         messages.push(...responseMessage.messages);
-        reportTokenUsage();
+        const usage = await result.totalUsage;
+        reportTokenUsage(usage?.inputTokens, usage?.outputTokens);
         break;
       }
 
       const responseMessages = await result.response;
       messages.push(...responseMessages.messages);
+      const usage = await result.totalUsage;
+      reportTokenUsage(usage?.inputTokens, usage?.outputTokens);
     }
 
     const toolResults: string[] = [];
