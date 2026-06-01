@@ -40,6 +40,7 @@ if (args.includes("--help") || args.includes("-h")) {
     Ctrl+L          Clear the conversation
     ↑ / ↓           Navigate input history
 
+<<<<<<< HEAD
   Auto-retry: When input is too long, the agent automatically retries
     with a truncated version of your message.
 
@@ -47,6 +48,13 @@ if (args.includes("--help") || args.includes("-h")) {
     imageInfo        Get image metadata (format, dimensions, size)
     imageToBase64    Encode image as base64 data URI
 
+||||||| e9a49a1
+=======
+  Image tools:
+    imageInfo        Get image metadata (format, dimensions, size)
+    imageToBase64    Encode image as base64 data URI
+
+>>>>>>> 26-reading_images
   Defaults:
     Model:    ${model}
     Provider: ${provider}
