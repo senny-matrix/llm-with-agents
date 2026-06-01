@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { streamText, type ModelMessage } from 'ai';
 import { getTracer, Laminar } from '@lmnr-ai/lmnr';
 import { getModel, resolveModelName, resolveSummarizeModelName, type ProviderType } from './providers/index.ts';
+import { getConfig } from './config.ts';
 import { SYSTEM_PROMPT } from './system/prompt.ts';
 import { gatherWorkspaceContext, buildSystemPrompt } from './system/workspace.ts';
 import type { AgentCallbacks, ToolCallInfo } from '../types.ts';
@@ -34,11 +35,11 @@ export function setRuntimeSummarizeModel(model: string): void {
 }
 
 export function getCurrentModelName(): string {
-  return _runtimeModelOverride || process.env.AGENT_MODEL || 'deepseek-v4-pro';
+  return _runtimeModelOverride || getConfig().defaultModel;
 }
 
 export function getCurrentProvider(): ProviderType {
-  return (process.env.PROVIDER as ProviderType) || 'deepseek';
+  return getConfig().defaultProvider;
 }
 
 const lmnrApiKey = process.env.LMNR_PROJECT_API_KEY;

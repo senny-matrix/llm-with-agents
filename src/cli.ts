@@ -33,6 +33,8 @@ if (args.includes("--help") || args.includes("-h")) {
     /exit, /quit    Exit the agent
     /sessions       List all saved conversation sessions
     /load <id>      Load a previously saved session by ID
+    /export md      Export conversation as Markdown
+    /export json    Export conversation as JSON
 
   Keyboard shortcuts:
     Ctrl+C          Interrupt running agent (press again if idle to exit)
@@ -40,10 +42,21 @@ if (args.includes("--help") || args.includes("-h")) {
     Ctrl+L          Clear the conversation
     ↑ / ↓           Navigate input history
 
+<<<<<<< HEAD
   Image tools:
     imageInfo        Get image metadata (format, dimensions, size)
     imageToBase64    Encode image as base64 data URI
 
+||||||| e9a49a1
+=======
+  Auto-retry: When input is too long, the agent automatically retries
+    with a truncated version of your message.
+
+  Image tools:
+    imageInfo        Get image metadata (format, dimensions, size)
+    imageToBase64    Encode image as base64 data URI
+
+>>>>>>> 17-help
   Defaults:
     Model:    ${model}
     Provider: ${provider}
@@ -53,6 +66,19 @@ if (args.includes("--help") || args.includes("-h")) {
     DEEPSEEK_API_KEY   API key for the DeepSeek provider
     LMSTUDIO_URL       LM Studio base URL (default: http://localhost:1234/v1)
     AGENT_MODEL        Override the default model name
+    AGI_MODE           Override default mode (safe | auto)
+    AGI_MARKDOWN       Override markdown rendering (true | false)
+
+  Config file (~/.agirc.json):
+    Settings are loaded from ~/.agirc.json on startup (env vars override).
+    Sample config:
+    {
+      "defaultModel": "deepseek-v4-pro",
+      "defaultProvider": "deepseek",
+      "mode": "safe",
+      "markdown": false,
+      "lmstudioUrl": "http://localhost:1234/v1"
+    }
 `);
   process.exit(0);
 }

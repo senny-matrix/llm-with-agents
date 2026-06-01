@@ -58,6 +58,73 @@ export const writeFile = tool({
     }
 });
 
+// Context lines to show before and after each diff hunk
+const DIFF_CONTEXT = 2;
+
+/** Generate a unified-diff-style hunk showing oldText → newText in file context */
+function generateDiff(
+  filePath: string,
+  oldText: string,
+  newText: string,
+  fileContent: string,
+  editIndex: number,
+): string {
+  const lines: string[] = [];
+  const fileLines = fileContent.split('\n');
+
+  // Find the line number where oldText appears
+  const matchIdx = fileContent.indexOf(oldText);
+  if (matchIdx === -1) return '';
+
+  const before = fileContent.slice(0, matchIdx);
+  const lineNum = before.split('\n').length;
+
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+
+  // Lines of context before the change
+  const ctxStart = Math.max(1, lineNum - DIFF_CONTEXT);
+  const ctxBefore = fileLines.slice(ctxStart - 1, lineNum - 1);
+
+  // Lines of context after the change
+  const afterStart = lineNum + oldLines.length - 1;
+  const ctxEnd = Math.min(fileLines.length, afterStart + DIFF_CONTEXT);
+  const ctxAfter = fileLines.slice(afterStart, ctxEnd);
+
+  // Hunk header
+  const oldRange = oldLines.length;
+  const newRange = newLines.length;
+  const hunkHeader = `@@ -${lineNum},${oldRange} +${lineNum},${newRange} @@`;
+
+  if (editIndex === 0) {
+    lines.push(`--- a/${filePath}`);
+    lines.push(`+++ b/${filePath}`);
+  }
+  lines.push(hunkHeader);
+
+  // Context before
+  for (const l of ctxBefore) {
+    lines.push(` ${l}`);
+  }
+
+  // Removed lines
+  for (const l of oldLines) {
+    lines.push(`-${l}`);
+  }
+
+  // Added lines
+  for (const l of newLines) {
+    lines.push(`+${l}`);
+  }
+
+  // Context after
+  for (const l of ctxAfter) {
+    lines.push(` ${l}`);
+  }
+
+  return lines.join('\n');
+}
+
 export const editFile = tool({
     description: 'Edit a single file using exact text replacement. Each edit replaces oldText with newText. oldText must match exactly and be unique in the file. Use multiple edits in one call for multiple changes. Keep oldText as small as possible while still being unique.',
     inputSchema: z.object({
@@ -69,9 +136,11 @@ export const editFile = tool({
     }),
     execute: async ({ path, edits }) => {
         try {
-            let content = await fs.readFile(path, 'utf8');
+            const originalContent = await fs.readFile(path, 'utf8');
+            let content = originalContent;
             let applied = 0;
             let failed: string[] = [];
+            const diffs: string[] = [];
 
             for (const edit of edits) {
                 if (!content.includes(edit.oldText)) {
@@ -83,6 +152,10 @@ export const editFile = tool({
                     failed.push(`Found ${count} matches for: "${edit.oldText.slice(0, 80)}${edit.oldText.length > 80 ? '...' : ''}". Text must be unique.`);
                     continue;
                 }
+
+                // Generate diff for this edit (against original content for accurate line numbers)
+                diffs.push(generateDiff(path, edit.oldText, edit.newText, originalContent, applied));
+
                 content = content.replace(edit.oldText, edit.newText);
                 applied++;
             }
@@ -91,10 +164,22 @@ export const editFile = tool({
                 await fs.writeFile(path, content, { encoding: 'utf8' });
             }
 
+            // Build result message
+            const parts: string[] = [];
+            parts.push(`Applied ${applied}/${edits.length} edit(s) to \`${path}\`.`);
+
             if (failed.length > 0) {
-                return `Applied ${applied}/${edits.length} edits to ${path}.\nFailures:\n${failed.map(f => `  - ${f}`).join('\n')}`;
+                parts.push(`\nFailures:\n${failed.map(f => `  - ${f}`).join('\n')}`);
             }
-            return `Successfully applied ${applied} edit(s) to ${path}`;
+
+            // Show diffs for successful edits
+            if (diffs.length > 0) {
+                parts.push('\n```diff');
+                parts.push(diffs.join('\n'));
+                parts.push('```');
+            }
+
+            return parts.join('\n');
         } catch (e) {
             return `There was an error editing ${path}. Here is the node.js error: ${e}`;
         }
