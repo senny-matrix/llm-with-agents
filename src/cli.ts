@@ -43,6 +43,9 @@ if (args.includes("--help") || args.includes("-h")) {
     /export json    Export conversation as JSON to ~/.agi/exports/
     /clear          Clear the conversation history
 
+  Project:
+    /init           Analyze the project and generate/update CLAUDE.md
+
   Exit:
     /exit, /quit    Exit the agent
 

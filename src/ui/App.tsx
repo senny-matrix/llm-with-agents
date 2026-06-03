@@ -253,6 +253,112 @@ export function App() {
         return;
       }
 
+      // Init — analyze project and generate/update CLAUDE.md
+      if (cmd === "init") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content:
+              "🔍 **Analyzing project to generate CLAUDE.md…**\n\n" +
+              "I'll read key config files, explore the source code, and create a comprehensive reference " +
+              "file that future AI assistants can use to quickly understand this codebase.",
+          },
+        ]);
+
+        userInput = `Please analyze this project thoroughly and create (or update) the CLAUDE.md file at the project root with a comprehensive project reference. Use writeFile to create/update it.
+
+Follow these steps in order:
+
+1. Read existing project docs: CLAUDE.md, AGENTS.md, course.yaml
+2. Read config files: package.json, tsconfig.json, tsconfig.build.json, biome.json
+3. Use listFiles on src/ to understand the directory structure
+4. Read key source files to understand the architecture:
+   - src/cli.ts (entry point)
+   - src/ui/App.tsx (TUI main component)
+   - src/agent/run.ts (core agent loop)
+   - src/agent/config.ts (configuration)
+   - src/agent/tools/index.ts (tool registry)
+   - src/types.ts (type definitions)
+5. Optionally read a few tool implementations (src/agent/tools/file.ts, src/agent/tools/shell.ts, src/agent/tools/webSearch.ts) and the system prompt (src/agent/system/prompt.ts, src/agent/system/workspace.ts)
+
+Then write CLAUDE.md covering:
+
+## Project Overview
+- Name, purpose, what it does ("agi" — an AI coding agent CLI)
+- Who it's for
+
+## Tech Stack
+- Runtime: Node.js + TypeScript
+- TUI Framework: Ink (React for terminal)
+- AI: Vercel AI SDK (@ai-sdk/openai, @ai-sdk/deepseek, @ai-sdk/openai-compatible)
+- Observability: Laminar (@lmnr-ai/lmnr)
+- Formatting: Biome
+- All key dependencies with versions from package.json
+
+## Architecture
+- High-level: CLI entry → TUI (Ink/React) → Agent loop → Tools
+- How streaming works (streamText → fullStream → text-delta / tool-call chunks)
+- Tool system: registry (tools/index.ts) → execution (executeTools.ts) → individual tool files
+- Configuration: .agirc.json + env vars → config.ts → runtime overrides
+- Session management: auto-save to ~/.agi/sessions/, export as md/json
+- MCP support for external tool servers
+
+## Project Structure
+- src/cli.ts — CLI entry point, help text, MCP init
+- src/index.ts — simple render entry
+- src/types.ts — shared TypeScript interfaces
+- src/ui/ — Ink/React TUI (App.tsx, components/)
+- src/agent/ — core agent logic
+  - run.ts — main agent loop with streaming, tool calling, retry, context compaction
+  - config.ts — .agirc.json parsing and config management
+  - tools/ — tool implementations (file, shell, webSearch, executeCode, image, dateTime, delegate)
+  - system/ — system prompt and workspace context gathering
+  - context/ — token estimation, model limits, conversation compaction
+  - providers/ — LLM provider abstraction (DeepSeek, LM Studio)
+  - mcp/ — Model Context Protocol client
+  - session/ — session persistence and export
+  - cost.ts — cost calculation
+  - executeTools.ts — tool dispatch
+  - subAgent.ts — sub-agent spawning via delegate tool
+- tests/ — test files
+- evals/ — Laminar evaluation files
+- dist/ — build output
+
+## Build, Run, Test
+- npm run dev — development mode with hot reload
+- npm start — run directly with tsx
+- npm run build — TypeScript compilation to dist/
+- npm run eval — run Laminar evaluations
+- Binary: "agi" (maps to dist/cli.js)
+
+## Code Conventions
+- Biome for formatting (tabs, double quotes) and linting
+- TypeScript strict mode
+- verbatimModuleSyntax: type imports must use "import type"
+- File extensions required in imports (.ts, .tsx)
+- React functional components with hooks for TUI
+- Tool pattern: { description, inputSchema (zod), execute }
+- Async/await throughout
+
+## Configuration
+- Config file: ~/.agirc.json (defaultModel, defaultProvider, mode, markdown, lmstudioUrl, mcpServers)
+- Env vars override file values: AGENT_MODEL, PROVIDER, AGI_MODE, AGI_MARKDOWN, LMSTUDIO_URL, DEEPSEEK_API_KEY, OPENAI_API_KEY, etc.
+- Runtime overrides via /model and /provider commands
+
+## Key Patterns & Conventions
+- Agent loop: streamText → handle text/tool-call chunks → execute tools → send results back → loop
+- Context management: token estimation, threshold-based compaction, summarize model
+- Tool approval: safe (ask) vs auto (approve all) modes
+- Retry logic: auto-truncate long inputs that fail with context errors
+- Streaming UI: complete paragraphs rendered as markdown, in-progress as raw text with cursor
+- Keep any existing content in CLAUDE.md that appears intentional (like OpenSpec instructions)
+
+Make the file thorough and well-organized. This will be read by future AI assistants to quickly understand the codebase.`;
+
+        // Fall through to agent dispatch below with the init prompt as user input
+      }
+
       // Conversation export
       if (cmd === "export" || cmd.startsWith("export ")) {
         const format = cmd === "export" ? "md" : cmd.slice(7).trim();
