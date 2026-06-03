@@ -3,7 +3,14 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { streamText, type ModelMessage } from 'ai';
 import { getTracer, Laminar } from '@lmnr-ai/lmnr';
-import { getModel, resolveModelName, resolveSummarizeModelName, type ProviderType } from './providers/index.ts';
+import {
+  getModel,
+  resolveModelName,
+  resolveSummarizeModelName,
+  setProviderConfig,
+  suggestModelForProviderSwap,
+  type ProviderType,
+} from './providers/index.ts';
 import { getConfig } from './config.ts';
 import { calculateCost } from './cost.ts';
 import { SYSTEM_PROMPT } from './system/prompt.ts';
@@ -27,6 +34,10 @@ config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') })
 let _runtimeModelOverride: string | null = null;
 let _runtimeSummarizeOverride: string | null = null;
 
+/** Runtime provider override (set via /provider command in TUI).
+ *  When set, model auto-switches to a sensible default for the new provider. */
+let _runtimeProviderOverride: ProviderType | null = null;
+
 export function setRuntimeModel(model: string): void {
   _runtimeModelOverride = model;
 }
@@ -35,12 +46,33 @@ export function setRuntimeSummarizeModel(model: string): void {
   _runtimeSummarizeOverride = model;
 }
 
+/**
+ * Switch provider at runtime.
+ * Also auto-switches the model to a sensible default for the new provider
+ * if the current model isn't known for the new provider.
+ * Returns a message describing what happened.
+ */
+export function setRuntimeProvider(provider: ProviderType): string {
+  const previousProvider = _runtimeProviderOverride ?? getConfig().defaultProvider;
+  _runtimeProviderOverride = provider;
+
+  // Check if current model works with the new provider
+  const currentModel = _runtimeModelOverride ?? getConfig().defaultModel;
+  const suggestion = suggestModelForProviderSwap(currentModel, provider);
+
+  if (!suggestion.isKnown) {
+    _runtimeModelOverride = suggestion.model;
+  }
+
+  return suggestion.suggestion;
+}
+
 export function getCurrentModelName(): string {
   return _runtimeModelOverride || getConfig().defaultModel;
 }
 
 export function getCurrentProvider(): ProviderType {
-  return getConfig().defaultProvider;
+  return _runtimeProviderOverride ?? getConfig().defaultProvider;
 }
 
 const lmnrApiKey = process.env.LMNR_PROJECT_API_KEY;
@@ -64,6 +96,12 @@ export const runAgent = async (
   callbacks: AgentCallbacks,
   signal?: AbortSignal,
 ): Promise<ModelMessage[]> => {
+  // Apply runtime provider override so getModel() routes to the right backend
+  const runtimeProvider = _runtimeProviderOverride;
+  if (runtimeProvider) {
+    setProviderConfig({ provider: runtimeProvider });
+  }
+
   const effectiveModel = _runtimeModelOverride || resolveModelName();
   const modelLimits = getModelLimits(effectiveModel);
   const dynamicSystemPrompt = getSystemPrompt();

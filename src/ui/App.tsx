@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import type { ModelMessage } from "ai";
-import { runAgent, setRuntimeModel, setRuntimeSummarizeModel, getCurrentModelName, getCurrentProvider } from "../agent/run.ts";
-import { setProviderConfig, type ProviderType } from "../agent/providers/index.ts";
+import { runAgent, setRuntimeModel, setRuntimeSummarizeModel, setRuntimeProvider, getCurrentModelName, getCurrentProvider } from "../agent/run.ts";
+import { type ProviderType, getProviderInfo, getModelsForProvider, formatModelList, findModel, findProvidersForModel } from "../agent/providers/index.ts";
 import { getConfig } from "../agent/config.ts";
 import { Logo } from "./components/Logo.tsx";
 import { Markdown } from "./components/Markdown.tsx";
@@ -214,11 +214,19 @@ export function App() {
         ]);
         return;
       }
-      // Model switching at runtime (supports both "model" and "/model")
+      // Model switching at runtime
       if (cmd === "model") {
+        const found = findModel(currentModel);
+        const providers = findProvidersForModel(currentModel);
+        const providerHints = providers.length > 0
+          ? `\nProvider${providers.length > 1 ? 's' : ''} that support this model: ${providers.map(p => getProviderInfo(p).label).join(', ')}`
+          : '';
+        const registryInfo = found
+          ? `\nRegistry: ${found.model.label} [${getProviderInfo(found.provider).label}]`
+          : '\n⚠️ This model is not in the known registry.';
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `📋 Current model: **${currentModel}** on **${currentProvider}**.\nTo switch: \`/model <name>\` (e.g., \`/model openai/gpt-oss-20b\`)` },
+          { role: "assistant", content: `📋 Current model: **${currentModel}** on **${getProviderInfo(currentProvider).label}** ${getProviderInfo(currentProvider).emoji}.${registryInfo}${providerHints}\n\nTo switch: \`/model <name>\` (e.g., \`/model deepseek-chat\`)\nKnown models for ${getProviderInfo(currentProvider).label}:\n${formatModelList(getModelsForProvider(currentProvider))}` },
         ]);
         return;
       }
@@ -227,22 +235,37 @@ export function App() {
         const offset = userInput.trim().startsWith("/") ? 7 : 6;
         const newModel = userInput.trim().slice(offset).trim();
         if (!newModel) {
-          setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Usage: `/model <model-name>` (e.g., `/model openai/gpt-oss-20b`)" }]);
+          setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Usage: `/model <model-name>` (e.g., `/model deepseek-chat`)" }]);
           return;
         }
+        // Check if model is known and which providers support it
+        const found = findModel(newModel);
+
         setRuntimeModel(newModel);
         setRuntimeSummarizeModel(newModel);
         setCurrentModel(newModel);
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `🔁 Switched to model: **${newModel}** (provider: ${currentProvider})` },
-        ]);
+
+        let feedback = `🔁 Switched to model: **${newModel}** (provider: ${getProviderInfo(currentProvider).label} ${getProviderInfo(currentProvider).emoji})`;
+
+        if (found) {
+          feedback += `\n📦 Registry: ${found.model.label} [${getProviderInfo(found.provider).label}]`;
+        } else {
+          feedback += `\n⚠️ This model is not in the known registry. Make sure ${currentProvider} supports it.`;
+        }
+
+        if (found && found.provider !== currentProvider) {
+          feedback += `\n⚠️ **Warning**: "${newModel}" is registered for **${getProviderInfo(found.provider).label}** ${getProviderInfo(found.provider).emoji}, but your current provider is **${getProviderInfo(currentProvider).label}** ${getProviderInfo(currentProvider).emoji}.`;
+          feedback += `\n💡 Consider switching: /provider ${found.provider}`;
+        }
+
+        setMessages((prev) => [...prev, { role: "assistant", content: feedback }]);
         return;
       }
       if (cmd === "provider") {
+        const info = getProviderInfo(currentProvider);
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `📋 Current provider: **${currentProvider}**.\nTo switch: \`/provider deepseek\` or \`/provider lmstudio\`` },
+          { role: "assistant", content: `📋 Current provider: **${info.label}** ${info.emoji} — ${info.description}.\n\nKnown models for ${info.label}:\n${formatModelList(info.models)}\n\nTo switch: \`/provider deepseek\` or \`/provider lmstudio\`\n💡 Switching provider will auto-update your model to a compatible one.` },
         ]);
         return;
       }
@@ -253,11 +276,17 @@ export function App() {
           setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Usage: `/provider deepseek` or `/provider lmstudio`" }]);
           return;
         }
-        setProviderConfig({ provider: newProvider });
+        // Use setRuntimeProvider which auto-switches model to a compatible one
+        const suggestion = setRuntimeProvider(newProvider);
         setCurrentProvider(newProvider);
+        // Update currentModel state to reflect the potentially auto-switched model
+        setCurrentModel(getCurrentModelName());
+
+        const info = getProviderInfo(newProvider);
+        const updatedModel = getCurrentModelName();
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: `🔁 Switched provider to: **${newProvider}** (model: ${currentModel})` },
+          { role: "assistant", content: `🔁 Switched provider to: **${info.label}** ${info.emoji} — ${info.description}.\n\n${suggestion}\n\nAvailable models for ${info.label}:\n${formatModelList(info.models)}\n\nCurrent: **${updatedModel}**\n\nTo switch model: \`/model <name>\` (e.g., \`/model ${info.models[0]?.id}\`)` },
         ]);
         return;
       }
@@ -676,6 +705,15 @@ Make the file thorough and well-organized. This will be read by future AI assist
           {currentProvider === "lmstudio" ? "🏠 LM Studio" : "☁️ DeepSeek"}
         </Text>
         <Text dimColor> (/model /provider)</Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text dimColor>Models: </Text>
+        {getModelsForProvider(currentProvider).slice(0, 4).map((m, i) => (
+          <React.Fragment key={m.id}>
+            {i > 0 && <Text dimColor>, </Text>}
+            <Text dimColor>{m.id}</Text>
+          </React.Fragment>
+        ))}
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
