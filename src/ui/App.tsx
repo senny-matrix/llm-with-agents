@@ -113,6 +113,12 @@ export function App() {
             if (text) displayMsgs.push({ role: "assistant", content: text });
           }
         }
+        // Show a subtle session restoration notice
+        const date = latest.updatedAt.slice(0, 16).replace("T", " ");
+        displayMsgs.push({
+          role: "assistant",
+          content: `📋 **Session restored** (${date}, ${latest.messageCount} messages). Use \`/clear\` or \`/new\` to start fresh.`,
+        });
         setMessages(displayMsgs);
       }
     }
@@ -188,12 +194,15 @@ export function App() {
         setMessages((prev) => [...prev, { role: "assistant", content: "🛡️ Safe mode enabled. Tool calls will require your approval." }]);
         return;
       }
-      if (cmd === "clear") {
+      if (cmd === "clear" || cmd === "new") {
         setConversationHistory([]);
         setMessages([]);
         setTokenUsage(null);
         setSessionCost(0);
+        setStreamingText("");
+        setActiveToolCalls([]);
         sessionIdRef.current = generateSessionId();
+        setMessages((prev) => [...prev, { role: "assistant", content: "🔄 Fresh session started." }]);
         return;
       }
       if (cmd === "md" || cmd === "raw") {
@@ -656,7 +665,7 @@ Make the file thorough and well-organized. This will be read by future AI assist
           {mode === "auto" ? "🟢 AUTO" : "🛡️ SAFE"}
         </Text>
         <Text dimColor>
-          {" "}("auto"/"safe" | "md"/"raw" to toggle markdown | "clear")
+          {" "}("auto"/"safe" | "md"/"raw" | "clear"/"new" | "init")
         </Text>
       </Box>
       <Box marginBottom={1}>

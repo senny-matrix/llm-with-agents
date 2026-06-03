@@ -36,12 +36,12 @@ if (args.includes("--help") || args.includes("-h")) {
     /provider       Show the current provider
     /provider <p>   Switch provider (deepseek | lmstudio)
 
-  Sessions:
+  Sessions & Reset:
+    /clear, /new    Start a fresh conversation (new session)
     /sessions       List all saved conversation sessions
     /load <id>      Load a previously saved session by ID
     /export md      Export conversation as Markdown to ~/.agi/exports/
     /export json    Export conversation as JSON to ~/.agi/exports/
-    /clear          Clear the conversation history
 
   Project:
     /init           Analyze the project and generate/update CLAUDE.md
@@ -53,7 +53,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
     Ctrl+C          Interrupt running agent (press again if idle to exit)
     Ctrl+D          Exit the agent
-    Ctrl+L          Clear the conversation
+    Ctrl+L          Clear the conversation and start fresh
     ↑ / ↓           Navigate input history
 
   ── Agent Tools ──
