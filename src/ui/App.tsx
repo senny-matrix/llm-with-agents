@@ -680,7 +680,7 @@ Make the file thorough and well-organized. This will be read by future AI assist
       setIsLoading(false);
       abortRef.current = null;
     },
-    [conversationHistory, exit, mode],
+    [conversationHistory, exit, mode, markdownMode, currentModel, currentProvider],
   );
 
   return (
