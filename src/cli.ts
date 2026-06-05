@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-import "dotenv/config";
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { homedir } from 'os';
+
+// Load global config first (~/.agi/.env) — works from any directory
+config({ path: resolve(homedir(), '.agi', '.env') });
+// Then load project-local .env (can override global settings)
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../.env') });
+
 import React from "react";
 import { render } from "ink";
 import { App } from "./ui/index.tsx";

@@ -19,7 +19,7 @@ interface WorkspaceContext {
 
 function exec(cmd: string, cwd?: string): string {
   try {
-    return execSync(cmd, { encoding: 'utf8', cwd, timeout: 5000 }).trim();
+    return execSync(cmd, { encoding: 'utf8', cwd, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return '';
   }

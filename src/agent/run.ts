@@ -8,10 +8,11 @@ import {
   resolveModelName,
   resolveSummarizeModelName,
   setProviderConfig,
+  resetProviderConfig,
   suggestModelForProviderSwap,
   type ProviderType,
 } from './providers/index.ts';
-import { getConfig } from './config.ts';
+import { getConfig, resetConfig } from './config.ts';
 import { calculateCost } from './cost.ts';
 import { SYSTEM_PROMPT } from './system/prompt.ts';
 import { gatherWorkspaceContext, buildSystemPrompt } from './system/workspace.ts';
@@ -29,6 +30,9 @@ import {
 } from './context/index.ts';
 
 config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
+// Reset cached configs so they re-read env vars that were just loaded above
+resetConfig();
+resetProviderConfig();
 
 /** Runtime model override (set via /model command in TUI) */
 let _runtimeModelOverride: string | null = null;
@@ -200,6 +204,12 @@ export const runAgent = async (
           });
           callbacks?.onToolCallStart?.(chunk.toolName, input);
         }
+
+        if (chunk.type === 'error') {
+          const errText = 'errorText' in chunk ? String(chunk.errorText) : String(chunk.error ?? 'Unknown model error');
+          streamError = new Error(errText);
+          // Don't break — let the stream finish so we can collect any partial output
+        }
       }
     } catch (e) {
       streamError = e as Error;
@@ -213,7 +223,21 @@ export const runAgent = async (
 
     // No output at all — model produced nothing (empty input, context overflow, etc.)
     if (!currentText && toolCalls.length === 0) {
-      fullResponse = 'The model returned nothing for this input. The pasted content may be too long or exceed the context window. Try a shorter message or break it into smaller parts.';
+      // Try to get more diagnostics from the AI SDK result
+      if (!streamError) {
+        try {
+          const reason = await result.finishReason;
+          fullResponse = `Model finished with reason "${reason}" but produced no output. The input may be too long or the model may not support this request type.`;
+        } catch (resultErr) {
+          streamError = resultErr as Error;
+        }
+      }
+      // Use the actual error from the model if available, otherwise the generic message
+      if (streamError) {
+        fullResponse = `${streamError.message}\n\nTry a shorter message or break it into smaller parts.`;
+      } else {
+        fullResponse = 'The model returned nothing for this input. The pasted content may be too long or exceed the context window. Try a shorter message or break it into smaller parts.';
+      }
       callbacks?.onToken?.(fullResponse);
       break;
     }

@@ -166,6 +166,19 @@ export function setProviderConfig(partial: Partial<ProviderConfig>): void {
   _lmstudioInstance = null;
 }
 
+/** Re-read provider config from env vars — call after dotenv loads .env */
+export function resetProviderConfig(): void {
+  const cfg = getConfig();
+  _config = {
+    provider: cfg.defaultProvider,
+    lmstudioBaseURL: cfg.lmstudioUrl,
+    lmstudioApiKey: process.env.LMSTUDIO_API_KEY || '',
+    deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
+  };
+  _deepseekInstance = null;
+  _lmstudioInstance = null;
+}
+
 /**
  * Get a LanguageModel for the given model ID using the current provider config.
  * Routes to the correct provider based on _config.provider.
