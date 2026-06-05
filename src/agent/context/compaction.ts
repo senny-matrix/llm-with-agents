@@ -46,18 +46,22 @@ export async function compactConversation(
 
   if (conversationMessages.length === 0) return [];
 
-  const conversationText = messagesToText(conversationMessages);
+  try {
+    const conversationText = messagesToText(conversationMessages);
 
-  const {text: summary} = await generateText({
-    model: getModel(model),
-    prompt: SUMMARIZATION_PROMPT + conversationText,
-  });
+    const {text: summary} = await generateText({
+      model: getModel(model),
+      prompt: SUMMARIZATION_PROMPT + conversationText,
+    });
 
-  const compactedMessages: ModelMessage[] = [
-    {role: 'user', content: `Summary of previous conversation: ${summary}. Please continue where we left off`},
-    {role: 'assistant', content: `I understand, I have reviewed the conversation and I am ready to continue. How can I help?`}
-  ];
+    const compactedMessages: ModelMessage[] = [
+      {role: 'user', content: `Summary of previous conversation: ${summary}. Please continue where we left off`},
+      {role: 'assistant', content: `I understand, I have reviewed the conversation and I am ready to continue. How can I help?`}
+    ];
 
-  return compactedMessages;
-
+    return compactedMessages;
+  } catch {
+    // Summarization failed — return empty so caller proceeds uncompacted
+    return [];
+  }
 }

@@ -81,8 +81,7 @@ export async function runSubAgent(options: SubAgentOptions): Promise<string> {
       model,
       system: systemPrompt,
       prompt: task,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tools: subAgentTools as any,
+      tools: subAgentTools,
       maxOutputTokens: 16000,
       stopWhen: stepCountIs(maxSteps),
     });

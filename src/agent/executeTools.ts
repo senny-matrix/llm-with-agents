@@ -13,8 +13,7 @@ export const executeTool = async (name: ToolName, args: unknown): Promise<string
     }
 
     try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await (tool.execute as any)(args, {
+        const result = await tool.execute(args, {
             toolCallId: '',
             messages: [],
         });

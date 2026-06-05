@@ -1,3 +1,4 @@
+import type { ToolSet } from "ai";
 import { dateTime } from "./dateTime.ts";
 import { deleteFile, listFiles, readFile, writeFile, editFile, grep } from "./file.ts";
 import { webSearch } from "./webSearch.ts";
@@ -8,8 +9,7 @@ import { imageInfo, imageToBase64 } from "./image.ts";
 
 // All tools combined for the agent
 // MCP tools are added dynamically via addMCPTools() before agent runs
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const tools: Record<string, any> = {
+export const tools: ToolSet = {
     dateTime,
     readFile,
     writeFile,
