@@ -1,7 +1,10 @@
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { readFileSync, existsSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { resolve } from 'node:path';
+
+const execAsync = promisify(exec);
 
 interface WorkspaceContext {
   cwd: string;
@@ -17,28 +20,40 @@ interface WorkspaceContext {
   agentFiles: string[];
 }
 
-function exec(cmd: string, cwd?: string): string {
+async function run(cmd: string, cwd?: string): Promise<string> {
   try {
-    return execSync(cmd, { encoding: 'utf8', cwd, timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const { stdout } = await execAsync(cmd, {
+      encoding: 'utf8',
+      cwd,
+      timeout: 5000,
+    });
+    return stdout.trim();
   } catch {
     return '';
   }
 }
 
-export function gatherWorkspaceContext(): WorkspaceContext {
+export async function gatherWorkspaceContext(): Promise<WorkspaceContext> {
   const cwd = process.cwd();
 
-  const gitRoot = exec('git rev-parse --show-toplevel', cwd) || cwd;
-  const gitBranch = exec('git branch --show-current', cwd) || 'unknown';
-  const gitStatus = exec('git status --short', cwd).slice(0, 2000) || 'clean';
+  const [gitRootRaw, gitBranchRaw, gitStatusRaw] = await Promise.all([
+    run('git rev-parse --show-toplevel', cwd),
+    run('git branch --show-current', cwd),
+    run('git status --short', cwd),
+  ]);
+
+  const gitRoot = gitRootRaw || cwd;
+  const gitBranch = gitBranchRaw || 'unknown';
+  const gitStatus = gitStatusRaw.slice(0, 2000) || 'clean';
 
   // List project files (top 2 levels, excluding node_modules, dist, .git)
   let projectFiles = '';
   try {
-    projectFiles = execSync(
+    const { stdout } = await execAsync(
       'find . -maxdepth 2 -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/.idea/*" -not -path "*/.*" | head -80',
-      { encoding: 'utf8', cwd, timeout: 3000 }
-    ).trim();
+      { encoding: 'utf8', cwd, timeout: 3000 },
+    );
+    projectFiles = stdout.trim();
   } catch {
     projectFiles = '';
   }

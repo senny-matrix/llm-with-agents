@@ -1,6 +1,23 @@
 import { tool } from "ai";
-import shell from "shelljs";
+import { exec } from "node:child_process";
 import { z } from "zod";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+function execAsync(
+	command: string,
+	timeout: number = DEFAULT_TIMEOUT_MS,
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+	return new Promise((resolve) => {
+		exec(command, { timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+			resolve({
+				stdout: stdout?.trim() || "",
+				stderr: stderr?.trim() || "",
+				code: error ? (error as NodeJS.ErrnoException & { code?: number }).code ?? 1 : 0,
+			});
+		});
+	});
+}
 
 export const runCommand = tool({
 	description:
@@ -9,18 +26,16 @@ export const runCommand = tool({
 		command: z.string().describe("The shell command to execute"),
 	}),
 	execute: async ({ command }) => {
-		const result = shell.exec(command, { silent: true, timeout: 30000 });
-		let output = "";
-		if (result.stdout) {
-			output += result.stdout;
-		}
-		if (result.stderr) {
-			output += `\nError: ${result.stderr}`;
+		const { stdout, stderr, code } = await execAsync(command);
+
+		let output = stdout;
+		if (stderr) {
+			output += `\nError: ${stderr}`;
 		}
 
-		if (result.code !== 0) {
+		if (code !== 0) {
 			return `Error executing command '${command}':
-            Exit Code: ${result.code}
+            Exit Code: ${code}
             Output: ${output}`;
 		}
 		return output || "Command executed successfully without any output.";
