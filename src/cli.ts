@@ -45,6 +45,10 @@ if (args.includes("--help") || args.includes("-h")) {
     /provider       Show the current provider
     /provider <p>   Switch provider (deepseek | lmstudio)
 
+  Persona:
+    /persona        Show the current persona and available options
+    /persona <id>   Switch persona (senior-engineer | trainer | general)
+
   Sessions & Reset:
     /clear, /new    Start a fresh conversation (new session)
     /sessions       List all saved conversation sessions
