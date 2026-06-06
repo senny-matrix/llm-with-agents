@@ -5,6 +5,7 @@ import { webSearch } from "./webSearch.ts";
 import { runCommand } from "./shell.ts";
 import { delegate } from "./delegate.ts";
 import { executeCode } from "./executeCode.ts";
+import { vpTool } from "./vp.ts";
 import { imageInfo, imageToBase64 } from "./image.ts";
 
 // All tools combined for the agent
@@ -22,6 +23,7 @@ export const tools: ToolSet = {
     executeCode,
     imageInfo,
     imageToBase64,
+	createProject: vpTool,
     delegate,
 };
 

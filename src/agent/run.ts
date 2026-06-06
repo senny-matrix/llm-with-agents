@@ -210,6 +210,11 @@ export class Agent {
 							currentText += chunk.text;
 							callbacks?.onToken?.(chunk.text);
 						}
+						if (chunk.type === "reasoning-delta") {
+							// Accumulate reasoning text so it appears in the final response
+							currentText += chunk.text;
+							callbacks?.onToken?.(chunk.text);
+						}
 						if (chunk.type === "tool-call") {
 							const input = "input" in chunk ? chunk.input : {};
 							toolCalls.push({
@@ -241,6 +246,19 @@ export class Agent {
 						continue;
 					}
 					// Non-transient or exhausted retries — propagate
+					// Auto-fallback: if DeepSeek fails, switch to local model
+					const currentProv = getCurrentProvider();
+					if (currentProv === "deepseek" && attempt === 0 && !signal?.aborted) {
+						const cfg = getConfig();
+						callbacks?.onToken?.(`\n⚠️ DeepSeek unavailable — switching to local model (${cfg.localModel})…\n`);
+						setProviderConfig({ provider: "lmstudio" });
+						agent.modelOverride = cfg.localModel;
+						// Reset state and retry
+						currentText = "";
+						toolCalls.length = 0;
+						streamError = null;
+						continue;
+					}
 					streamError = err;
 					const msg = streamError.message ?? "";
 					if (!currentText && !msg.includes("No output generated") && streamError.name !== "AI_NoOutputGeneratedError") {

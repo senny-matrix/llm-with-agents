@@ -58,3 +58,8 @@ esac
 echo ""
 echo "✅ Built: ${OUTFILE}"
 ls -lh "${OUTFILE}" || ls -lh "agi-${TARGET}"
+
+# macOS: ad-hoc sign so AMFI doesn't kill the binary when copied/moved
+if [[ "$(uname)" == "Darwin" ]] && [[ "$TARGET" == "native" || "$TARGET" == darwin-* ]]; then
+	codesign --force --sign - "$OUTFILE" 2>/dev/null && echo "🔏 Signed ${OUTFILE}" || echo "⚠️  codesign failed (non-fatal)"
+fi

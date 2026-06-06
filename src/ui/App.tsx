@@ -11,7 +11,9 @@ import {
 	getCurrentPersonaId,
 	getCurrentProvider,
 	runAgent,
+	setRuntimePersona,
 } from "../agent/run.ts";
+import { resolveFileReferences } from "./utils/fileCompletion.ts";
 import {
 	generateSessionId,
 	listSessions,
@@ -104,8 +106,15 @@ export function App() {
 		getCurrentProvider(),
 	);
 	const [currentPersona, setCurrentPersona] = useState(getCurrentPersonaId());
+	// Set default persona on mount
+	useEffect(() => {
+		setRuntimePersona("senior-engineer");
+		setCurrentPersona("senior-engineer");
+	}, []);
 	const sessionIdRef = useRef<string>(generateSessionId());
 	const abortRef = useRef<AbortController | null>(null);
+	const pendingQueueRef = useRef<string[]>([]);
+	const isRunningRef = useRef(false);
 	const [inputHistory, setInputHistory] = useState<string[]>([]);
 
 	// ── Command handler (extracted hook) ──
@@ -207,6 +216,16 @@ export function App() {
 			sessionIdRef.current = generateSessionId();
 			return;
 		}
+		if (key.escape) {
+			if (abortRef.current && !abortRef.current.signal.aborted) {
+				abortRef.current.abort();
+				setMessages((prev) => [
+					...prev,
+					{ role: "assistant", content: "⏹️ Interrupted." },
+				]);
+			}
+			return;
+		}
 		if (key.ctrl && _input === "c") {
 			if (abortRef.current && !abortRef.current.signal.aborted) {
 				abortRef.current.abort();
@@ -223,6 +242,15 @@ export function App() {
 	// ── Agent dispatch ──
 	const handleSubmit = useCallback(
 		async (userInput: string) => {
+			// Ref-based guard: prevents concurrent dispatches regardless of closure freshness
+			if (isLoading || isRunningRef.current) {
+				pendingQueueRef.current.push(userInput);
+				setMessages((prev) => [
+					...prev,
+					{ role: "assistant", content: `📥 **Queued** (${pendingQueueRef.current.length}) — will process after the current task finishes.` },
+				]);
+				return;
+			}
 			// 1. Try to handle as a slash command
 			const cmdResult = handleCommand(userInput);
 			if (cmdResult.handled) {
@@ -304,12 +332,21 @@ export function App() {
 				const tail = msg.slice(-Math.floor(maxLen * 0.2));
 				return `${head}\n\n... [${msg.length - maxLen} characters truncated] ...\n\n${tail}`;
 			};
-
+			// Resolve @file references so the agent gets file content
+			const resolvedInput = resolveFileReferences(userInput);
+			if (resolvedInput !== userInput) {
+				userInput = resolvedInput;
+				setMessages((prev) => [
+					...prev,
+					{ role: "assistant", content: "📎 Inlined file references from `@` paths." },
+				]);
+			}
 			let newHistory: ModelMessage[];
 			let attempt = 0;
 			const MAX_ATTEMPTS = 2;
 			let currentInput = userInput;
 
+			isRunningRef.current = true;
 			while (true) {
 				attempt++;
 				try {
@@ -371,10 +408,22 @@ export function App() {
 
 			setConversationHistory(newHistory);
 			setIsLoading(false);
+			isRunningRef.current = false;
 			abortRef.current = null;
 		},
-		[conversationHistory, exit, mode, markdownMode, currentModel, currentProvider, handleCommand],
+		[conversationHistory, isLoading, exit, mode, markdownMode, currentModel, currentProvider, handleCommand],
 	);
+
+	// ── Dequeue next request when loading finishes ──
+	const handleSubmitRef = useRef(handleSubmit);
+	handleSubmitRef.current = handleSubmit;
+
+	useEffect(() => {
+		if (!isLoading && pendingQueueRef.current.length > 0) {
+			const next = pendingQueueRef.current.shift()!;
+			handleSubmitRef.current(next);
+		}
+	}, [isLoading]);
 
 	// ── Render ──
 	return (
@@ -403,6 +452,31 @@ export function App() {
 				<Text dimColor>Persona: </Text>
 				<Text color="yellow">{currentPersona}</Text>
 				<Text dimColor> (/persona)</Text>
+			</Box>
+			<Box marginBottom={1}>
+				<Text dimColor>Status: </Text>
+				{isLoading ? (
+					<>
+						{streamingText ? (
+							<Text color="green" dimColor={false}>
+								◇ Streaming {streamingText.length > 0 ? `(${(streamingText.length / 4).toFixed(0)} tok)` : ""}
+							</Text>
+						) : activeToolCalls.length > 0 ? (
+							<Text color="yellow">
+								⚙️ Running tools ({activeToolCalls.length})
+							</Text>
+						) : (
+							<Text color="cyan" dimColor={false}>
+								● Processing
+							</Text>
+						)}
+						{pendingQueueRef.current.length > 0 && (
+							<Text dimColor> · 📦 {pendingQueueRef.current.length} queued</Text>
+						)}
+					</>
+				) : (
+					<Text dimColor>Idle</Text>
+				)}
 			</Box>
 			<Box marginBottom={1}>
 				<Text dimColor>Models: </Text>
@@ -470,31 +544,40 @@ export function App() {
 					</Box>
 				)}
 
-				{isLoading &&
-					!streamingText &&
-					activeToolCalls.length === 0 &&
-					!pendingApproval && (
-						<Box marginTop={1}>
-							<Spinner />
-						</Box>
-					)}
-
-				{pendingApproval && (
-					<ToolApproval
-						toolName={pendingApproval.toolName}
-						args={pendingApproval.args}
-						onResolve={(approved) => {
-							pendingApproval.resolve(approved);
-							setPendingApproval(null);
-						}}
-					/>
-				)}
 			</Box>
+			{isLoading && (
+				<Box marginTop={1} marginBottom={1}>
+					<Text bold>
+						{streamingText ? (
+							<Text color="green">◇ Streaming ({(streamingText.length / 4).toFixed(0)} tok)</Text>
+						) : activeToolCalls.length > 0 ? (
+							<Text color="yellow">⚙️ Running tools ({activeToolCalls.length})</Text>
+						) : (
+							<Text color="cyan">● Processing...</Text>
+						)}
+						{pendingQueueRef.current.length > 0 && (
+							<Text dimColor> · 📦 {pendingQueueRef.current.length} queued</Text>
+						)}
+					</Text>
+					<Text dimColor> · Esc to cancel</Text>
+				</Box>
+			)}
+
+			{pendingApproval && (
+				<ToolApproval
+					toolName={pendingApproval.toolName}
+					args={pendingApproval.args}
+					onResolve={(approved) => {
+						pendingApproval.resolve(approved);
+						setPendingApproval(null);
+					}}
+				/>
+			)}
 
 			{!pendingApproval && (
 				<Input
 					onSubmit={handleSubmit}
-					disabled={isLoading}
+					disabled={false}
 					history={inputHistory}
 				/>
 			)}

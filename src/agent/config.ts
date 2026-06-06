@@ -14,18 +14,22 @@ export interface AgiConfig {
   /** Start with markdown rendering enabled */
   markdown: boolean;
   /** LM Studio base URL */
-  lmstudioUrl: string;
-  /** MCP server configurations */
-  mcpServers: MCPServerConfig[];
+	/** LM Studio base URL */
+	lmstudioUrl: string;
+	/** Fallback local model (used when DeepSeek is unavailable) */
+	localModel: string;
+	/** MCP server configurations */
+	mcpServers: MCPServerConfig[];
 }
 
 const DEFAULTS: AgiConfig = {
-  defaultModel: "deepseek-v4-pro",
-  defaultProvider: "deepseek",
-  mode: "safe",
-  markdown: false,
-  lmstudioUrl: "http://localhost:1234/v1",
-  mcpServers: [],
+	defaultModel: "deepseek-v4-pro",
+	defaultProvider: "deepseek",
+	mode: "auto",
+	markdown: true,
+	lmstudioUrl: "http://localhost:1234/v1",
+	localModel: "google/gemma-4-31b",
+	mcpServers: [],
 };
 
 const CONFIG_PATH = resolve(homedir(), ".agirc.json");
@@ -63,18 +67,22 @@ export function loadConfig(): AgiConfig {
       (process.env.AGI_MODE as "safe" | "auto") ||
       file.mode ||
       DEFAULTS.mode,
-    markdown:
-      process.env.AGI_MARKDOWN === "true"
-        ? true
-        : process.env.AGI_MARKDOWN === "false"
-          ? false
-          : file.markdown ?? DEFAULTS.markdown,
-    lmstudioUrl:
-      process.env.LMSTUDIO_URL ||
-      file.lmstudioUrl ||
-      DEFAULTS.lmstudioUrl,
-    mcpServers:
-      file.mcpServers ?? DEFAULTS.mcpServers,
+		markdown:
+			process.env.AGI_MARKDOWN === "true"
+				? true
+				: process.env.AGI_MARKDOWN === "false"
+					? false
+					: file.markdown ?? DEFAULTS.markdown,
+		lmstudioUrl:
+			process.env.LMSTUDIO_URL ||
+			file.lmstudioUrl ||
+			DEFAULTS.lmstudioUrl,
+		localModel:
+			process.env.AGENT_LOCAL_MODEL ||
+			file.localModel ||
+			DEFAULTS.localModel,
+		mcpServers:
+			file.mcpServers ?? DEFAULTS.mcpServers,
   };
 
   return _config;
@@ -98,9 +106,10 @@ export function sampleConfig(): string {
     {
       defaultModel: "deepseek-v4-pro",
       defaultProvider: "deepseek",
-      mode: "safe",
-      markdown: false,
+      mode: "auto",
+      markdown: true,
       lmstudioUrl: "http://localhost:1234/v1",
+      localModel: "google/gemma-4-31b",
       mcpServers: [
         {
           name: "filesystem",

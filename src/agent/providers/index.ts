@@ -143,48 +143,46 @@ export interface ProviderConfig {
   /** DeepSeek API key */
   deepseekApiKey?: string;
 }
-
-let _config: ProviderConfig = {
-  provider: getConfig().defaultProvider,
-  lmstudioBaseURL: getConfig().lmstudioUrl,
-  lmstudioApiKey: process.env.LMSTUDIO_API_KEY || '',
-  deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
-};
-
+let _config: ProviderConfig | null = null;
 // Cached provider instances
 let _deepseekInstance: ReturnType<typeof createDeepSeek> | null = null;
 let _lmstudioInstance: ReturnType<typeof createOpenAICompatible> | null = null;
 
-export function getProviderConfig(): ProviderConfig {
-  return { ..._config };
+function ensureConfig(): ProviderConfig {
+	if (!_config) {
+		const cfg = getConfig();
+		_config = {
+			provider: cfg.defaultProvider,
+			lmstudioBaseURL: cfg.lmstudioUrl,
+			lmstudioApiKey: process.env.LMSTUDIO_API_KEY || '',
+			deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
+		};
+	}
+	return _config;
 }
-
+export function getProviderConfig(): ProviderConfig {
+	return { ...ensureConfig() };
+}
 export function setProviderConfig(partial: Partial<ProviderConfig>): void {
-  _config = { ..._config, ...partial };
-  // Invalidate caches when config changes
-  _deepseekInstance = null;
-  _lmstudioInstance = null;
+	ensureConfig();
+	_config = { ..._config!, ...partial };
+	_deepseekInstance = null;
+	_lmstudioInstance = null;
 }
 
 /** Re-read provider config from env vars — call after dotenv loads .env */
 export function resetProviderConfig(): void {
-  const cfg = getConfig();
-  _config = {
-    provider: cfg.defaultProvider,
-    lmstudioBaseURL: cfg.lmstudioUrl,
-    lmstudioApiKey: process.env.LMSTUDIO_API_KEY || '',
-    deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
-  };
-  _deepseekInstance = null;
-  _lmstudioInstance = null;
+	_config = null;
+	_deepseekInstance = null;
+	_lmstudioInstance = null;
 }
 
 /**
  * Get a LanguageModel for the given model ID using the current provider config.
- * Routes to the correct provider based on _config.provider.
+ * Routes to the correct provider based on provider setting.
  */
 export function getModel(modelId: string): LanguageModel {
-  const { provider, lmstudioBaseURL, lmstudioApiKey, deepseekApiKey } = _config;
+	const { provider, lmstudioBaseURL, lmstudioApiKey, deepseekApiKey } = ensureConfig();
 
   if (provider === 'lmstudio') {
     if (!_lmstudioInstance) {
