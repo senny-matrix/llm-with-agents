@@ -135,6 +135,11 @@ export function Input({
 			return;
 		}
 
+		// ── Escape — consumed by App shortcut, never insert into text ──
+		if (key.escape) {
+			return;
+		}
+
 		// ── Insert ──
 		if (_input && !key.ctrl && !key.meta) {
 			const newVal = curVal.slice(0, curPos) + _input + curVal.slice(curPos);
