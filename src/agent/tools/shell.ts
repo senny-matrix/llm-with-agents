@@ -29,8 +29,11 @@ export const runCommand = tool({
 		const { stdout, stderr, code } = await execAsync(command);
 
 		let output = stdout;
-		if (stderr) {
+		if (stderr && code !== 0) {
 			output += `\nError: ${stderr}`;
+		} else if (stderr) {
+			// stderr with exit code 0 is informational (e.g. git's "Switched to branch")
+			output += `\n${stderr}`;
 		}
 
 		if (code !== 0) {
