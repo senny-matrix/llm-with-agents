@@ -167,6 +167,7 @@ export class Agent {
 		}
 
 		let fullResponse = "";
+		let reasoningText = "";
 
 
 		const agent = this; // capture for closures
@@ -187,6 +188,7 @@ export class Agent {
 
 			const toolCalls: ToolCallInfo[] = [];
 			let currentText = "";
+			reasoningText = "";
 			let streamError: Error | null = null;
 			let result: Awaited<ReturnType<typeof streamText>>;
 
@@ -211,9 +213,8 @@ export class Agent {
 							callbacks?.onToken?.(chunk.text);
 						}
 						if (chunk.type === "reasoning-delta") {
-							// Accumulate reasoning text so it appears in the final response
-							currentText += chunk.text;
-							callbacks?.onToken?.(chunk.text);
+							reasoningText += chunk.text;
+							callbacks?.onReasoning?.(chunk.text);
 						}
 						if (chunk.type === "tool-call") {
 							const input = "input" in chunk ? chunk.input : {};
@@ -371,7 +372,7 @@ export class Agent {
 				callbacks?.onToken?.(fullResponse);
 			}
 		}
-		callbacks?.onComplete?.(fullResponse);
+		callbacks?.onComplete?.(fullResponse, { reasoning: reasoningText || undefined });
 		return messages;
 	}
 }

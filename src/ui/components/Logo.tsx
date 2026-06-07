@@ -29,6 +29,16 @@ export function Logo() {
           MicroSkills Studio — AGI v2
         </Text>
       </Box>
+      <Box>
+        <Text color="cyan" dimColor>
+          Designed &amp; Developed by Rogers Aaron &lt;rogers@microskills.ac.tz&gt;
+        </Text>
+      </Box>
+      <Box>
+        <Text color="cyan" dimColor>
+          for MicroSkills IT Services
+        </Text>
+      </Box>
     </Box>
   );
 }

@@ -21,3 +21,22 @@ export function extractAssistantText(msg: ModelMessage): string {
 	}
 	return "";
 }
+
+/**
+ * Extract the reasoning text from a ModelMessage.
+ * Handles array-of-parts content with reasoning parts.
+ */
+export function extractReasoning(msg: ModelMessage): string | undefined {
+	if (Array.isArray(msg.content)) {
+		const parts = msg.content.filter(
+			(p): p is { type: "reasoning"; text: string } =>
+				typeof p === "object" &&
+				p !== null &&
+				"type" in p &&
+				p.type === "reasoning" &&
+				"text" in p,
+		);
+		return parts.length > 0 ? parts.map((p) => p.text).join("") : undefined;
+	}
+	return undefined;
+}

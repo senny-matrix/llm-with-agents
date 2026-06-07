@@ -33,12 +33,12 @@ import { Spinner } from "./components/Spinner.tsx";
 import { TokenUsage } from "./components/TokenUsage.tsx";
 import { ToolApproval } from "./components/ToolApproval.tsx";
 import { ToolCall, type ToolCallProps } from "./components/ToolCall.tsx";
+import { ThinkingBlock } from "./components/ThinkingBlock.tsx";
 import {
 	useCommands,
 	type ApprovalMode,
 } from "./hooks/useCommands.ts";
-import { extractAssistantText } from "./utils/messageUtils.ts";
-
+import { extractAssistantText, extractReasoning } from "./utils/messageUtils.ts";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -94,6 +94,9 @@ export function App() {
 		ModelMessage[]
 	>([]);
 	const [isLoading, setIsLoading] = useState(false);
+	const [streamingReasoning, setStreamingReasoning] = useState("");
+	const [expandedBlocks, setExpandedBlocks] = useState<Record<string, boolean>>({});
+	const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
 	const [streamingText, setStreamingText] = useState("");
 	const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
 	const [pendingApproval, setPendingApproval] =
@@ -155,7 +158,8 @@ export function App() {
 						displayMsgs.push({ role: "user", content: msg.content });
 					} else if (msg.role === "assistant") {
 						const text = extractAssistantText(msg);
-						if (text) displayMsgs.push({ role: "assistant", content: text });
+						const reasoning = extractReasoning(msg);
+						if (text) displayMsgs.push({ role: "assistant", content: text, reasoning });
 					}
 				}
 				const date = latest.updatedAt.slice(0, 16).replace("T", " ");
@@ -212,11 +216,84 @@ export function App() {
 			setTokenUsage(null);
 			setSessionCost(0);
 			setStreamingText("");
+			setStreamingReasoning("");
 			setActiveToolCalls([]);
+			setExpandedBlocks({});
+			setFocusedBlockId(null);
 			sessionIdRef.current = generateSessionId();
 			return;
 		}
+
+		// Collect all thinking block IDs in display order
+		const getBlockIds = (): string[] => {
+			const ids: string[] = [];
+			for (let i = 0; i < messages.length; i++) {
+				if (messages[i].role === "assistant" && messages[i].reasoning) {
+					ids.push(`msg-${i}`);
+				}
+			}
+			if (streamingReasoning) ids.push("streaming");
+			return ids;
+		};
+
+		if (key.ctrl && _input === "t") {
+			const ids = getBlockIds();
+			if (ids.length === 0) return;
+			const allExpanded = ids.every((id) => expandedBlocks[id]);
+			setExpandedBlocks((prev) => {
+				const next = { ...prev };
+				for (const id of ids) {
+					if (allExpanded) delete next[id];
+					else next[id] = true;
+				}
+				return next;
+			});
+			return;
+		}
+
+		if (_input === "\t") {
+			const ids = getBlockIds();
+			if (ids.length === 0) return;
+			const shift = key.shift || false;
+			const currentIdx = focusedBlockId ? ids.indexOf(focusedBlockId) : -1;
+			let nextIdx: number;
+			if (shift) {
+				nextIdx = currentIdx <= 0 ? ids.length - 1 : currentIdx - 1;
+			} else {
+				nextIdx = currentIdx >= ids.length - 1 ? 0 : currentIdx + 1;
+			}
+			setFocusedBlockId(ids[nextIdx]);
+			// Auto-expand focused block
+			setExpandedBlocks((prev) => ({ ...prev, [ids[nextIdx]]: true }));
+			return;
+		}
+
+		if (_input === "\r" && focusedBlockId) {
+			setExpandedBlocks((prev) => {
+				if (prev[focusedBlockId]) {
+					const next = { ...prev };
+					delete next[focusedBlockId];
+					return next;
+				}
+				return { ...prev, [focusedBlockId]: true };
+			});
+			return;
+		}
+
+		if (_input === " " && focusedBlockId) {
+			setExpandedBlocks((prev) => {
+				if (prev[focusedBlockId]) {
+					const next = { ...prev };
+					delete next[focusedBlockId];
+					return next;
+				}
+				return { ...prev, [focusedBlockId]: true };
+			});
+			return;
+		}
+
 		if (key.escape) {
+			setFocusedBlockId(null);
 			if (abortRef.current && !abortRef.current.signal.aborted) {
 				abortRef.current.abort();
 				setMessages((prev) => [
@@ -267,6 +344,7 @@ export function App() {
 			setMessages((prev) => [...prev, { role: "user", content: userInput }]);
 			setIsLoading(true);
 			setStreamingText("");
+			setStreamingReasoning("");
 			setActiveToolCalls([]);
 
 			setInputHistory((prev) =>
@@ -277,9 +355,12 @@ export function App() {
 			abortRef.current = controller;
 
 			// Build callbacks
-			const makeCallbacks = (): Parameters<typeof runAgent>[2] => ({
+		const makeCallbacks = (): Parameters<typeof runAgent>[2] => ({
 				onToken: (token) => {
 					setStreamingText((prev) => prev + token);
+				},
+				onReasoning: (token) => {
+					setStreamingReasoning((prev) => prev + token);
 				},
 				onToolCallStart: (name, args) => {
 					setActiveToolCalls((prev) => [
@@ -301,14 +382,15 @@ export function App() {
 						),
 					);
 				},
-				onComplete: (response) => {
+				onComplete: (response, meta) => {
 					if (response) {
 						setMessages((prev) => [
 							...prev,
-							{ role: "assistant", content: response },
+							{ role: "assistant", content: response, reasoning: meta?.reasoning },
 						]);
 					}
 					setStreamingText("");
+					setStreamingReasoning("");
 					setActiveToolCalls([]);
 				},
 				onToolApproval: (name, args) => {
@@ -436,7 +518,7 @@ export function App() {
 				</Text>
 				<Text dimColor>
 					{" "}
-					("auto"/"safe" | "md"/"raw" | "persona" | "clear" | "init")
+					("auto"/"safe" | "md"/"raw" | "persona" | "clear" | "init" | "Tab thinking" | "Enter toggle")
 				</Text>
 			</Box>
 			<Box marginBottom={1}>
@@ -447,11 +529,6 @@ export function App() {
 					{currentProvider === "lmstudio" ? "🏠 LM Studio" : "☁️ DeepSeek"}
 				</Text>
 				<Text dimColor> (/model /provider)</Text>
-			</Box>
-			<Box marginBottom={1}>
-				<Text dimColor>Persona: </Text>
-				<Text color="yellow">{currentPersona}</Text>
-				<Text dimColor> (/persona)</Text>
 			</Box>
 			<Box marginBottom={1}>
 				<Text dimColor>Status: </Text>
@@ -505,11 +582,20 @@ export function App() {
 										<Text>{msg.content}</Text>
 									)}
 								</Box>
+								{msg.role === "assistant" && msg.reasoning && (
+									<ThinkingBlock reasoning={msg.reasoning} expanded={!!expandedBlocks[`msg-${i}`]} isFocused={focusedBlockId === `msg-${i}`} />
+								)}
 							</Box>
 						))}
 					</Box>
 				) : (
-					<MessageList messages={messages} />
+					<MessageList messages={messages} expandedBlocks={expandedBlocks} focusedBlockId={focusedBlockId} />
+				)}
+
+				{streamingReasoning && (
+					<Box flexDirection="column" marginTop={1}>
+						<ThinkingBlock reasoning={streamingReasoning} expanded={!!expandedBlocks["streaming"]} isFocused={focusedBlockId === "streaming"} />
+					</Box>
 				)}
 
 				{streamingText && (
@@ -543,7 +629,6 @@ export function App() {
 						))}
 					</Box>
 				)}
-
 			</Box>
 			{isLoading && (
 				<Box marginTop={1} marginBottom={1}>
