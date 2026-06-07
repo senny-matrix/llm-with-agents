@@ -293,6 +293,8 @@ export function App() {
 		}
 
 		if (key.escape) {
+			// Collapse all thinking blocks and clear focus
+			setExpandedBlocks({});
 			setFocusedBlockId(null);
 			if (abortRef.current && !abortRef.current.signal.aborted) {
 				abortRef.current.abort();
@@ -361,6 +363,8 @@ export function App() {
 				},
 				onReasoning: (token) => {
 					setStreamingReasoning((prev) => prev + token);
+					// Auto-expand streaming reasoning block on first token
+					setExpandedBlocks((prev) => ({ ...prev, streaming: true }));
 				},
 				onToolCallStart: (name, args) => {
 					setActiveToolCalls((prev) => [
@@ -383,11 +387,14 @@ export function App() {
 					);
 				},
 				onComplete: (response, meta) => {
-					if (response) {
-						setMessages((prev) => [
-							...prev,
-							{ role: "assistant", content: response, reasoning: meta?.reasoning },
-						]);
+					if (response && meta?.reasoning) {
+						setMessages((prev) => {
+							const idx = prev.length;
+							setExpandedBlocks((p) => ({ ...p, [`msg-${idx}`]: true }));
+							return [...prev, { role: "assistant", content: response, reasoning: meta.reasoning }];
+						});
+					} else if (response) {
+						setMessages((prev) => [...prev, { role: "assistant", content: response }]);
 					}
 					setStreamingText("");
 					setStreamingReasoning("");
@@ -518,7 +525,7 @@ export function App() {
 				</Text>
 				<Text dimColor>
 					{" "}
-					("auto"/"safe" | "md"/"raw" | "persona" | "clear" | "init" | "Tab thinking" | "Enter toggle")
+					("auto"/"safe" | "md"/"raw" | "persona" | "clear" | "init" | "Tab/Esc thinking")
 				</Text>
 			</Box>
 			<Box marginBottom={1}>
